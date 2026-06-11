@@ -1,0 +1,5 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(192,192) scale(0.625)">
+    <path d="M312 224 H600 C744 224 836 314 836 440 C836 530 782 602 692 638 L872 880 H712 L550 656 H464 V880 H312 Z M464 368 V512 H588 C652 512 686 476 686 440 C686 404 652 368 588 368 Z" fill="#FFFFFF"/>
+  </g>
+</svg>
