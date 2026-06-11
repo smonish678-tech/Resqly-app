@@ -2,7 +2,7 @@
 Resqly V1 Backend - FastAPI + MongoDB
 Provider Acquisition Platform & Consumer Pre-Launch Platform
 """
-from fastapi import FastAPI, APIRouter, HTTPException, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -18,6 +18,13 @@ from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
+
+from rate_limit import (
+    enforce_otp_request,
+    check_admin_locked,
+    record_admin_failure,
+    reset_admin_failures,
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -404,10 +411,12 @@ def _gen_otp() -> str:
 
 
 @api.post("/auth/otp/request")
-async def request_otp(payload: OTPRequest):
+async def request_otp(payload: OTPRequest, request: Request):
     """Request OTP. Returns the mock OTP (random) for V1 (no SMS gateway)."""
     if payload.role not in ("consumer", "provider"):
         raise HTTPException(status_code=400, detail="Invalid role")
+    # Rate-limit: 1/60s per phone, 5/hour per IP
+    enforce_otp_request(request, payload.phone)
     otp = _gen_otp()
     await db.otp_requests.insert_one(
         {
@@ -431,8 +440,8 @@ async def request_otp(payload: OTPRequest):
 
 
 @api.post("/auth/otp/resend")
-async def resend_otp(payload: OTPRequest):
-    return await request_otp(payload)
+async def resend_otp(payload: OTPRequest, request: Request):
+    return await request_otp(payload, request)
 
 
 @api.post("/auth/otp/verify")
@@ -1268,9 +1277,13 @@ async def list_my_uploads(user: Dict[str, Any] = Depends(current_user)):
 
 # ---------------- Admin (Hidden) ----------------
 @api.post("/admin/login")
-async def admin_login(payload: AdminLogin):
+async def admin_login(payload: AdminLogin, request: Request):
+    # Lockout: 5 failed attempts / 15 min per IP
+    check_admin_locked(request)
     if payload.password != ADMIN_PASSWORD:
+        record_admin_failure(request)
         raise HTTPException(status_code=401, detail="Invalid admin password")
+    reset_admin_failures(request)
     token = make_token({"sub": "admin", "role": "admin"})
     return {"token": token}
 
