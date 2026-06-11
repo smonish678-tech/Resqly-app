@@ -12,8 +12,9 @@ import { CONSUMER_SERVICES } from '@/lib/constants';
 function greetingFor(name) {
   const h = new Date().getHours();
   const greet = h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
-  const first = (name || '').trim().split(/\s+/)[0] || 'User';
-  return `${greet}, ${first}`;
+  const first = (name || '').trim().split(/\s+/)[0];
+  const hey = first ? `Hey ${first}` : 'Hey User';
+  return { greet, hey };
 }
 
 export default function ConsumerHome() {
@@ -60,9 +61,10 @@ export default function ConsumerHome() {
         </div>
 
         {/* Greeting */}
-        <div className="px-5 pt-2 pb-1">
-          <div className="text-2xl font-bold text-slate-900" data-testid="home-greeting">{greetingFor(me?.name)}</div>
-          <div className="text-sm text-slate-500">How can we help you today?</div>
+        <div className="px-5 pt-2 pb-1" data-testid="home-greeting">
+          <div className="text-sm font-semibold text-slate-500" data-testid="home-greeting-time">{greetingFor(me?.name).greet}</div>
+          <div className="text-2xl font-bold text-slate-900 mt-0.5" data-testid="home-greeting-name">{greetingFor(me?.name).hey}</div>
+          <div className="text-sm text-slate-500 mt-1">How can we help you today?</div>
         </div>
 
         {/* Hero */}

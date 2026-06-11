@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Ambulance, MapPin, ShieldAlert, Phone, CheckCircle2, AlertTriangle, Navigation } from 'lucide-react';
 import api from '@/lib/api';
+import { reverseGeocode } from '@/lib/uploads';
 import { useAuth } from '@/lib/auth';
 import MobileShell from '@/components/MobileShell';
 import { Button } from '@/components/ui/button';
@@ -30,8 +31,17 @@ export default function ConsumerEmergencyRequest() {
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setCoords({ lat, lng });
+        // Reverse geocode to auto-fill address
+        try {
+          const geo = await reverseGeocode(lat, lng);
+          if (geo && (geo.label || geo.short)) {
+            setAddress((prev) => prev || geo.short || geo.label);
+          }
+        } catch {}
         setStep('confirm');
       },
       (err) => {

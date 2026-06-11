@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
 import { Plus, FileText, Trash2, Upload, X, Image as ImageIcon } from 'lucide-react';
 import api from '@/lib/api';
+import { uploadFile } from '@/lib/uploads';
 import MobileShell from '@/components/MobileShell';
 import BottomNav from '@/components/BottomNav';
 import { Input } from '@/components/ui/input';
@@ -22,12 +23,16 @@ export default function ConsumerPrescriptions() {
   };
   useEffect(() => { load().catch(() => {}); }, []);
 
-  const onFile = (e) => {
+  const onFile = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    if (file.size > 4 * 1024 * 1024) { toast.error('Max 4MB'); return; }
-    const r = new FileReader();
-    r.onload = () => setForm((f) => ({ ...f, image_url: r.result }));
-    r.readAsDataURL(file);
+    if (file.size > 6 * 1024 * 1024) { toast.error('Max 6MB'); return; }
+    try {
+      const url = await uploadFile('prescriptions', file);
+      setForm((f) => ({ ...f, image_url: url }));
+      toast.success('File uploaded');
+    } catch (err) {
+      toast.error(err.message || 'Upload failed');
+    }
   };
 
   const save = async () => {

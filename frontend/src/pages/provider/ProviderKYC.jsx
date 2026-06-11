@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Upload, CheckCircle2, AlertCircle, FileText, X } from 'lucide-react';
 import api from '@/lib/api';
+import { uploadFile } from '@/lib/uploads';
 import { useAuth } from '@/lib/auth';
 import MobileShell from '@/components/MobileShell';
 import { Button } from '@/components/ui/button';
@@ -46,20 +47,19 @@ export default function ProviderKYC() {
 
   const handleFile = async (docType, file) => {
     if (!file) return;
-    if (file.size > 4 * 1024 * 1024) { toast.error('File too large (max 4MB)'); return; }
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const { data } = await api.post('/providers/me/documents', {
-          document_type: docType,
-          document_url: reader.result,
-          file_name: file.name,
-        });
-        toast.success(`${docType} uploaded`);
-        await fetchAll();
-      } catch (e) { toast.error('Upload failed'); }
-    };
-    reader.readAsDataURL(file);
+    if (file.size > 6 * 1024 * 1024) { toast.error('File too large (max 6MB)'); return; }
+    try {
+      const url = await uploadFile('provider-documents', file);
+      await api.post('/providers/me/documents', {
+        document_type: docType,
+        document_url: url,
+        file_name: file.name,
+      });
+      toast.success(`${docType} uploaded`);
+      await fetchAll();
+    } catch (e) {
+      toast.error(e.message || 'Upload failed');
+    }
   };
 
   const removeDoc = async (id) => {

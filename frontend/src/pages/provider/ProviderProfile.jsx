@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { LogOut, Camera, FileText, Trash2, MapPin } from 'lucide-react';
 import api from '@/lib/api';
+import { uploadFile } from '@/lib/uploads';
 import { useAuth } from '@/lib/auth';
 import MobileShell from '@/components/MobileShell';
 import BottomNav from '@/components/BottomNav';
@@ -45,12 +46,16 @@ export default function ProviderProfile() {
     setForm({ ...form, [key]: cur.includes(val) ? cur.filter((v) => v !== val) : [...cur, val] });
   };
 
-  const onPhoto = (e) => {
+  const onPhoto = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { toast.error('Max 2MB'); return; }
-    const r = new FileReader();
-    r.onload = () => setForm({ ...form, profile_photo: r.result });
-    r.readAsDataURL(file);
+    if (file.size > 4 * 1024 * 1024) { toast.error('Max 4MB'); return; }
+    try {
+      const url = await uploadFile('profile-images', file);
+      setForm({ ...form, profile_photo: url });
+      toast.success('Photo uploaded');
+    } catch (err) {
+      toast.error(err.message || 'Upload failed');
+    }
   };
 
   const save = async () => {
