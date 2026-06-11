@@ -1074,7 +1074,8 @@ async def list_orders(user: Dict[str, Any] = Depends(require_role("provider"))):
 @api.get("/providers/me/earnings")
 async def my_earnings(user: Dict[str, Any] = Depends(require_role("provider"))):
     cursor = db.orders.find(
-        {"provider_id": user["id"], "status": "completed"}, {"_id": 0}
+        {"provider_id": user["id"], "status": "completed"},
+        {"_id": 0, "net_earnings": 1, "created_at": 1},
     )
     orders = await cursor.to_list(1000)
     today_str = datetime.now(timezone.utc).date().isoformat()
