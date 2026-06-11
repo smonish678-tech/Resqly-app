@@ -1,0 +1,4 @@
+/* Resqly app-level overrides (most styling lives in tailwind / index.css) */
+.App {
+  min-height: 100vh;
+}
