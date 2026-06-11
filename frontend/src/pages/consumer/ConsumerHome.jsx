@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import * as Icons from 'lucide-react';
-import { Bell, ChevronDown, User as UserIcon, MapPin, ArrowRight, Sparkles, Ambulance, ChevronRight, ShieldCheck } from 'lucide-react';
+import { Bell, ChevronDown, ShieldCheck, MapPin, ArrowRight, Ambulance, ChevronRight, Sparkles, Activity, HeartPulse } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import BottomNav from '@/components/BottomNav';
@@ -9,72 +9,96 @@ import Logo from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { CONSUMER_SERVICES } from '@/lib/constants';
 
+function greetingFor(name) {
+  const h = new Date().getHours();
+  const greet = h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
+  const first = (name || '').trim().split(/\s+/)[0] || 'User';
+  return `${greet}, ${first}`;
+}
+
 export default function ConsumerHome() {
   const { me } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState({ total: 0 });
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     api.get('/waitlist/stats').then(({ data }) => setStats(data)).catch(() => {});
+    api.get('/notifications').then(({ data }) => {
+      const unread = (data.notifications || []).filter((n) => !n.read).length;
+      setUnreadCount(unread);
+    }).catch(() => {});
   }, []);
+
+  const locationLabel = me?.location || me?.city || 'Set your location';
 
   return (
     <div className="resqly-shell">
       <div className="resqly-frame flex flex-col min-h-screen">
         {/* Top bar */}
-        <div className="px-5 pt-5 pb-3 flex items-center justify-between">
-          <button onClick={() => navigate('/consumer/profile')} className="flex items-start gap-2 text-left">
-            <MapPin className="w-4 h-4 text-blue-700 mt-0.5" />
-            <div>
+        <div className="px-5 pt-5 pb-2 flex items-center justify-between">
+          <button data-testid="home-location" onClick={() => navigate('/consumer/location')} className="flex items-start gap-2 text-left max-w-[70%]">
+            <MapPin className="w-4 h-4 text-blue-700 mt-0.5 flex-shrink-0" />
+            <div className="min-w-0">
               <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Location</div>
-              <div className="text-sm font-semibold text-slate-900 flex items-center gap-1">{me?.city || 'Set your city'} <ChevronDown className="w-3 h-3" /></div>
+              <div className="text-sm font-semibold text-slate-900 flex items-center gap-1 truncate">
+                <span className="truncate">{locationLabel}</span>
+                <ChevronDown className="w-3 h-3 flex-shrink-0" />
+              </div>
             </div>
           </button>
           <div className="flex items-center gap-2">
             <button data-testid="home-notifications" onClick={() => navigate('/consumer/notifications')} className="p-2 bg-slate-50 rounded-full relative">
               <Bell className="w-5 h-5 text-slate-700" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
+              {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />}
             </button>
-            <button data-testid="home-profile" onClick={() => navigate('/consumer/profile')} className="p-2 bg-slate-50 rounded-full">
-              <UserIcon className="w-5 h-5 text-slate-700" />
+            <button data-testid="home-sos-vault" onClick={() => navigate('/consumer/sos-vault')} className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-full inline-flex items-center gap-1.5 font-semibold text-xs">
+              <ShieldCheck className="w-4 h-4" />
+              <span>SOS Vault</span>
             </button>
           </div>
         </div>
 
+        {/* Greeting */}
+        <div className="px-5 pt-2 pb-1">
+          <div className="text-2xl font-bold text-slate-900" data-testid="home-greeting">{greetingFor(me?.name)}</div>
+          <div className="text-sm text-slate-500">How can we help you today?</div>
+        </div>
+
         {/* Hero */}
-        <div className="mx-5 mt-2 rounded-3xl gradient-blue text-white p-5 relative overflow-hidden">
+        <div className="mx-5 mt-3 rounded-3xl gradient-blue text-white p-5 relative overflow-hidden">
           <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full bg-white/10" />
           <div className="absolute -right-10 bottom-0 w-24 h-24 rounded-full bg-white/10" />
           <Logo size={26} withText={false} />
-          <h1 className="text-2xl font-bold mt-2">Healthcare Simplified</h1>
-          <p className="text-sm text-blue-100 mt-2 max-w-[260px]">
-            Resqly is onboarding verified healthcare partners in your area. Complete your emergency profile and get priority access when services launch.
+          <h1 className="text-xl font-bold mt-2">Healthcare Simplified</h1>
+          <p className="text-sm text-blue-100 mt-1.5 max-w-[280px]">
+            Resqly is onboarding verified healthcare partners near you. Complete your profile for priority access.
           </p>
-          <Button data-testid="home-join-waitlist" onClick={() => navigate('/consumer/waitlist')} className="mt-4 bg-white text-blue-800 hover:bg-blue-50 font-semibold">
+          <Button data-testid="home-join-waitlist" onClick={() => navigate('/consumer/waitlist')} className="mt-4 bg-white text-blue-800 hover:bg-blue-50 font-semibold h-9">
             Join Waitlist <ArrowRight className="w-4 h-4 ml-1" />
           </Button>
         </div>
 
-        {/* Emergency Floating Action Card */}
-        <div className="px-5 mt-5">
+        {/* Emergency SOS — immediately below hero */}
+        <div className="px-5 mt-4">
           <button
-            data-testid="home-emergency-fab"
+            data-testid="home-emergency-sos"
             onClick={() => navigate('/consumer/emergency-request')}
             className="emergency-fab w-full rounded-3xl p-4 text-white text-left flex items-center gap-4 active:scale-[0.98] transition-transform"
           >
-            <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center relative">
+            <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center relative flex-shrink-0">
               <Ambulance className="w-7 h-7 text-white" strokeWidth={2.4} />
               <span className="emergency-pulse absolute inset-0 rounded-2xl" />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-full">SOS</span>
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-white/80">24/7</span>
               </div>
-              <div className="text-lg font-bold mt-1">Emergency Ambulance</div>
+              <div className="text-lg font-bold mt-1">Emergency SOS</div>
               <div className="text-xs text-white/85">Tap to request nearest verified ambulance</div>
             </div>
-            <ChevronRight className="w-5 h-5 text-white" />
+            <ChevronRight className="w-5 h-5 text-white flex-shrink-0" />
           </button>
         </div>
 
@@ -104,33 +128,22 @@ export default function ConsumerHome() {
           </div>
         </div>
 
-        {/* Ranger CTA */}
-        <div className="px-5 mt-6">
-          <div className="resqly-card p-5 border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-white">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-blue-700" />
-              <span className="text-[10px] font-bold uppercase tracking-widest text-blue-700">For Healthcare Professionals</span>
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 mt-2">Become a Resqly Ranger</h3>
-            <p className="text-sm text-slate-600 mt-1">
-              Join Resqly's verified healthcare network and receive service requests from patients nearby.
-            </p>
-            <Button data-testid="home-ranger-cta" onClick={() => navigate('/provider/login')} className="mt-4 w-full bg-blue-700 hover:bg-blue-800">
-              Join as Ranger <ArrowRight className="w-4 h-4 ml-1" />
-            </Button>
-          </div>
-        </div>
-
-        {/* Footer stat */}
-        <div className="px-5 mt-5 mb-3">
+        {/* Quick stat */}
+        <div className="px-5 mt-5 mb-2">
           <div className="text-xs text-slate-500 text-center inline-flex items-center justify-center gap-1.5 w-full">
             <ShieldCheck className="w-3 h-3 text-emerald-600" />
             <span><b className="text-blue-700">{stats.total || 0}+</b> people on the priority list across India</span>
           </div>
         </div>
 
+        {/* Small text link to Ranger (replaces big card) */}
+        <div className="px-5 mt-3 mb-4">
+          <button data-testid="home-ranger-link" onClick={() => navigate('/provider/login')} className="w-full text-center text-sm text-slate-600 py-3 border-t border-slate-100">
+            Healthcare Professional? <span className="text-blue-700 font-semibold">Join as a Resqly Ranger</span>
+          </button>
+        </div>
+
         <div className="flex-1" />
-        {/* Spacer so content doesn't sit behind floating dock */}
         <div className="h-24" />
         <BottomNav variant="consumer" />
       </div>

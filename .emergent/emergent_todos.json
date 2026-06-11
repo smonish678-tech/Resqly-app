@@ -1,42 +1,46 @@
 [
   {
-    "content": "Backend: extend user profile + Family/Prescriptions/LabTests/Emergency Requests endpoints",
+    "content": "Backend: install supabase lib, configure .env with Supabase keys, random OTP generation",
     "status": "completed"
   },
   {
-    "content": "Frontend: Splash screen + auto-launch into Consumer (no role landing)",
+    "content": "Backend: Supabase Storage helper + generic upload endpoint, migrate prescriptions/lab-reports/profile-images/provider-docs",
     "status": "completed"
   },
   {
-    "content": "Frontend: New liquid-glass dock BottomNav (Home/Prescriptions/Lab Tests/Family/Profile)",
-    "status": "completed"
+    "content": "Frontend: shortened landing description + Ranger CTA → small text link",
+    "status": "in_progress"
   },
   {
-    "content": "Frontend: Consumer Home redesign - reorder services, Emergency Floating Action Card, Ranger CTA update, 'Join Waitlist' label",
-    "status": "completed"
+    "content": "Frontend: time-based greeting on home",
+    "status": "in_progress"
   },
   {
-    "content": "Frontend: Practo-inspired Profile with Personal/Medical/Lifestyle tabs + completion %",
-    "status": "completed"
+    "content": "Frontend: SOS Vault feature (top-right access + dedicated page)",
+    "status": "in_progress"
   },
   {
-    "content": "Frontend: Family management page",
-    "status": "completed"
+    "content": "Frontend: Zomato-style Location picker with GPS + search + saved locations + reverse geocoding (Nominatim)",
+    "status": "in_progress"
   },
   {
-    "content": "Frontend: Prescriptions (upload + history) page",
-    "status": "completed"
+    "content": "Frontend: notification red dot only when unread",
+    "status": "in_progress"
   },
   {
-    "content": "Frontend: Lab Tests (upcoming/past/reports/upload) page",
-    "status": "completed"
+    "content": "Frontend: rename Emergency card to 'Emergency SOS'",
+    "status": "in_progress"
   },
   {
-    "content": "Frontend: Emergency request flow (request location → confirm) — design only, future provider routing",
-    "status": "completed"
+    "content": "Update Terms/Privacy/Contact pages from PDFs + company info",
+    "status": "in_progress"
+  },
+  {
+    "content": "Migrate frontend uploads (profile photo, prescriptions, lab reports, KYC docs) to /api/uploads/base64",
+    "status": "pending"
   },
   {
     "content": "End-to-end testing with testing_agent_v3",
-    "status": "completed"
+    "status": "pending"
   }
 ]

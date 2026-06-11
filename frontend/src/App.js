@@ -18,6 +18,8 @@ import ConsumerFamily from '@/pages/consumer/ConsumerFamily';
 import ConsumerPrescriptions from '@/pages/consumer/ConsumerPrescriptions';
 import ConsumerLabTests from '@/pages/consumer/ConsumerLabTests';
 import ConsumerEmergencyRequest from '@/pages/consumer/ConsumerEmergencyRequest';
+import LocationPicker from '@/pages/consumer/LocationPicker';
+import SOSVault from '@/pages/consumer/SOSVault';
 
 // Provider
 import ProviderLogin from '@/pages/provider/ProviderLogin';
@@ -84,6 +86,8 @@ function App() {
           <Route path="/consumer/family" element={<PrivateRoute allow={['consumer']}><ConsumerFamily /></PrivateRoute>} />
           <Route path="/consumer/prescriptions" element={<PrivateRoute allow={['consumer']}><ConsumerPrescriptions /></PrivateRoute>} />
           <Route path="/consumer/lab-tests" element={<PrivateRoute allow={['consumer']}><ConsumerLabTests /></PrivateRoute>} />
+          <Route path="/consumer/location" element={<PrivateRoute allow={['consumer']}><LocationPicker /></PrivateRoute>} />
+          <Route path="/consumer/sos-vault" element={<PrivateRoute allow={['consumer']}><SOSVault /></PrivateRoute>} />
 
           {/* Provider */}
           <Route path="/provider/login" element={<ProviderLogin />} />

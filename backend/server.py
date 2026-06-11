@@ -10,8 +10,10 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import uuid
+import random
 import jwt
 import bcrypt
+import base64 as b64
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional, Dict, Any
@@ -27,7 +29,21 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret")
 JWT_ALG = "HS256"
 JWT_EXPIRE_DAYS = 30
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
-MOCK_OTP = "123456"
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+PUBLIC_BUCKETS = set(os.environ.get("PUBLIC_BUCKETS", "profile-images").split(","))
+OTP_EXPIRY_MIN = 10
+
+# Initialise Supabase client (graceful fallback to base64 in Mongo)
+supabase_client = None
+if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+    try:
+        from supabase import create_client  # type: ignore
+
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    except Exception as e:  # noqa
+        logging.warning(f"Supabase client init failed: {e}")
+        supabase_client = None
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -382,33 +398,63 @@ async def health():
     return {"status": "healthy", "timestamp": now_iso()}
 
 
-# ---------------- Auth (Mock OTP) ----------------
+# ---------------- Auth (Mock OTP - random per attempt) ----------------
+def _gen_otp() -> str:
+    return f"{random.randint(0, 999999):06d}"
+
+
 @api.post("/auth/otp/request")
 async def request_otp(payload: OTPRequest):
-    """Request OTP. Returns the mock OTP for V1 (no SMS gateway)."""
+    """Request OTP. Returns the mock OTP (random) for V1 (no SMS gateway)."""
     if payload.role not in ("consumer", "provider"):
         raise HTTPException(status_code=400, detail="Invalid role")
-    # Save the OTP record (in real prod we'd persist + send SMS)
+    otp = _gen_otp()
     await db.otp_requests.insert_one(
         {
             "id": new_id(),
             "phone": payload.phone,
             "role": payload.role,
-            "otp": MOCK_OTP,
+            "otp": otp,
             "created_at": now_iso(),
+            "expires_at": (
+                datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MIN)
+            ).isoformat(),
+            "used": False,
         }
     )
     return {
         "success": True,
         "message": f"OTP sent to {payload.phone}",
-        "mock_otp": MOCK_OTP,  # exposed for V1 pre-launch
+        "mock_otp": otp,  # exposed for V1 pre-launch (no real SMS)
+        "expires_in_seconds": OTP_EXPIRY_MIN * 60,
     }
+
+
+@api.post("/auth/otp/resend")
+async def resend_otp(payload: OTPRequest):
+    return await request_otp(payload)
 
 
 @api.post("/auth/otp/verify")
 async def verify_otp(payload: OTPVerify):
-    if payload.otp != MOCK_OTP:
+    # Find the latest unused OTP for this phone/role
+    record = await db.otp_requests.find_one(
+        {"phone": payload.phone, "role": payload.role, "used": False},
+        sort=[("created_at", -1)],
+    )
+    if not record:
+        raise HTTPException(status_code=400, detail="No OTP requested. Please request a new one.")
+    # Check expiry
+    try:
+        expires_at = datetime.fromisoformat(record["expires_at"])
+        if expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
+    except (KeyError, ValueError):
+        pass
+    if record.get("otp") != payload.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
+    # Mark used
+    await db.otp_requests.update_one({"_id": record["_id"]}, {"$set": {"used": True}})
     if payload.role == "consumer":
         user = await db.users.find_one({"phone": payload.phone}, {"_id": 0})
         is_new = False
@@ -1123,6 +1169,103 @@ async def get_services():
     }
 
 
+# ---------------- Storage (Supabase) ----------------
+ALLOWED_BUCKETS = {"prescriptions", "lab-reports", "provider-documents", "profile-images"}
+
+
+class UploadBase64Request(BaseModel):
+    bucket: str
+    filename: str
+    content_type: Optional[str] = None
+    data_base64: str
+
+
+def _upload_to_supabase(bucket: str, path: str, file_bytes: bytes, content_type: str) -> Optional[str]:
+    """Upload to Supabase Storage. Returns public URL or signed URL. Returns None on failure."""
+    if not supabase_client:
+        return None
+    try:
+        supabase_client.storage.from_(bucket).upload(
+            path=path,
+            file=file_bytes,
+            file_options={
+                "content-type": content_type,
+                "cache-control": "3600",
+                "upsert": "false",
+            },
+        )
+    except Exception as e:
+        logging.error(f"Supabase upload error: {e}")
+        return None
+    # Get URL
+    if bucket in PUBLIC_BUCKETS:
+        try:
+            url = supabase_client.storage.from_(bucket).get_public_url(path)
+            if isinstance(url, dict):
+                return url.get("publicUrl") or url.get("publicURL")
+            return url
+        except Exception:
+            return None
+    else:
+        try:
+            signed = supabase_client.storage.from_(bucket).create_signed_url(path, 60 * 60 * 24 * 7)
+            if isinstance(signed, dict):
+                return signed.get("signedURL") or signed.get("signed_url") or signed.get("signedUrl")
+            return signed
+        except Exception:
+            return None
+
+
+@api.post("/uploads/base64")
+async def upload_base64(payload: UploadBase64Request, user: Dict[str, Any] = Depends(current_user)):
+    if payload.bucket not in ALLOWED_BUCKETS:
+        raise HTTPException(status_code=400, detail="Invalid bucket")
+    # Strip data URL prefix if present
+    data = payload.data_base64
+    if "," in data and data.strip().startswith("data:"):
+        data = data.split(",", 1)[1]
+    try:
+        file_bytes = b64.b64decode(data)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 data")
+    if len(file_bytes) > 6 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 6MB)")
+    ext = ""
+    if "." in payload.filename:
+        ext = payload.filename.rsplit(".", 1)[1].lower()
+    safe_id = new_id()
+    path = f"{user['id']}/{safe_id}" + (f".{ext}" if ext else "")
+    content_type = payload.content_type or "application/octet-stream"
+
+    public_url = _upload_to_supabase(payload.bucket, path, file_bytes, content_type)
+    if not public_url:
+        # Fallback: return the data URL so the UI keeps working even if Supabase is down
+        public_url = f"data:{content_type};base64,{data}"
+
+    # Track upload metadata
+    await db.uploads.insert_one(
+        {
+            "id": safe_id,
+            "user_id": user["id"],
+            "bucket": payload.bucket,
+            "path": path,
+            "url": public_url,
+            "content_type": content_type,
+            "size_bytes": len(file_bytes),
+            "filename": payload.filename,
+            "created_at": now_iso(),
+        }
+    )
+    return {"success": True, "url": public_url, "bucket": payload.bucket, "path": path}
+
+
+@api.get("/uploads/me")
+async def list_my_uploads(user: Dict[str, Any] = Depends(current_user)):
+    cursor = db.uploads.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    items = await cursor.to_list(200)
+    return {"uploads": items}
+
+
 # ---------------- Admin (Hidden) ----------------
 @api.post("/admin/login")
 async def admin_login(payload: AdminLogin):
@@ -1238,6 +1381,20 @@ async def on_startup():
     await db.provider_documents.create_index(
         [("provider_id", 1), ("document_type", 1)]
     )
+    # Ensure Supabase Storage buckets exist
+    if supabase_client:
+        for bucket in ALLOWED_BUCKETS:
+            try:
+                supabase_client.storage.create_bucket(
+                    bucket,
+                    options={"public": bucket in PUBLIC_BUCKETS},
+                )
+                logging.info(f"Created Supabase bucket: {bucket}")
+            except Exception as e:
+                # Already exists is OK
+                msg = str(e)
+                if "already exists" not in msg.lower() and "duplicate" not in msg.lower():
+                    logging.warning(f"Bucket {bucket}: {msg}")
     logging.info("Resqly V1 API ready.")
 
 
