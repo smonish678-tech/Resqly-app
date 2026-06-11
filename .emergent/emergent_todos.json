@@ -49,10 +49,18 @@
   },
   {
     "content": "Capture screenshots for user visual review",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "Run testing_agent_v3 full E2E",
+    "status": "in_progress"
+  },
+  {
+    "content": "Fix any bugs found by testing agent",
+    "status": "pending"
+  },
+  {
+    "content": "Deliver deployment readiness report",
     "status": "pending"
   }
 ]

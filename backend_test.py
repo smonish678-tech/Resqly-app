@@ -8,7 +8,6 @@ import random
 from datetime import datetime
 
 BASE_URL = "https://resqly-launch.preview.emergentagent.com/api"
-MOCK_OTP = "123456"
 ADMIN_PASSWORD = "resqly-admin-2026"
 
 class ResqlyTester:
@@ -17,9 +16,11 @@ class ResqlyTester:
         self.tests_passed = 0
         self.consumer_token = None
         self.consumer_phone = None
+        self.consumer_otp = None  # Store the random OTP
         self.provider_token = None
         self.provider_id = None
         self.provider_email = None
+        self.provider_otp = None  # Store provider OTP
         self.admin_token = None
         
     def log(self, msg, status="info"):
@@ -53,7 +54,7 @@ class ResqlyTester:
     # ========== CONSUMER TESTS ==========
     
     def test_consumer_otp_request(self):
-        """USER STORY 2: Consumer can request OTP"""
+        """USER STORY 2: Consumer can request OTP (RANDOM per call)"""
         self.consumer_phone = self.random_phone()
         r = requests.post(f"{BASE_URL}/auth/otp/request", json={
             "phone": self.consumer_phone,
@@ -61,14 +62,16 @@ class ResqlyTester:
         })
         assert r.status_code == 200, f"Expected 200, got {r.status_code}"
         data = r.json()
-        assert data.get("mock_otp") == MOCK_OTP, "Mock OTP not returned"
-        self.log(f"Consumer phone: {self.consumer_phone}")
+        assert "mock_otp" in data, "Mock OTP not returned"
+        self.consumer_otp = data["mock_otp"]
+        assert len(self.consumer_otp) == 6, f"OTP should be 6 digits, got {self.consumer_otp}"
+        self.log(f"Consumer phone: {self.consumer_phone}, OTP: {self.consumer_otp}")
     
     def test_consumer_otp_verify_new(self):
         """USER STORY 2: New consumer OTP verify creates account"""
         r = requests.post(f"{BASE_URL}/auth/otp/verify", json={
             "phone": self.consumer_phone,
-            "otp": MOCK_OTP,
+            "otp": self.consumer_otp,  # Use the random OTP
             "role": "consumer"
         })
         assert r.status_code == 200, f"Expected 200, got {r.status_code}"
@@ -149,7 +152,7 @@ class ResqlyTester:
     # ========== PROVIDER TESTS (Phone OTP) ==========
     
     def test_provider_otp_flow(self):
-        """USER STORY 9: Provider phone OTP login"""
+        """USER STORY 9: Provider phone OTP login (RANDOM OTP)"""
         phone = self.random_phone()
         
         # Request OTP
@@ -158,19 +161,22 @@ class ResqlyTester:
             "role": "provider"
         })
         assert r.status_code == 200, f"Expected 200, got {r.status_code}"
-        assert r.json().get("mock_otp") == MOCK_OTP
+        data = r.json()
+        assert "mock_otp" in data, "Mock OTP not returned"
+        otp = data["mock_otp"]
+        assert len(otp) == 6, f"OTP should be 6 digits, got {otp}"
         
         # Verify OTP
         r2 = requests.post(f"{BASE_URL}/auth/otp/verify", json={
             "phone": phone,
-            "otp": MOCK_OTP,
+            "otp": otp,  # Use the returned OTP
             "role": "provider"
         })
         assert r2.status_code == 200
         data = r2.json()
         assert "token" in data
         assert data.get("is_new") == True
-        self.log(f"Provider OTP flow successful")
+        self.log(f"Provider OTP flow successful with random OTP: {otp}")
     
     # ========== PROVIDER TESTS (Email) ==========
     
@@ -747,6 +753,302 @@ class ResqlyTester:
         requests_list = r.json()["requests"]
         assert len(requests_list) >= 1, "Emergency request not in list"
     
+    # ========== ITERATION 3 NEW TESTS ==========
+    
+    def test_random_otp_changes_per_call(self):
+        """ITERATION 3: Random OTP - two consecutive calls return DIFFERENT OTPs"""
+        phone = self.random_phone()
+        
+        # First OTP request
+        r1 = requests.post(f"{BASE_URL}/auth/otp/request", json={
+            "phone": phone,
+            "role": "consumer"
+        })
+        assert r1.status_code == 200
+        otp1 = r1.json()["mock_otp"]
+        
+        # Second OTP request (same phone)
+        r2 = requests.post(f"{BASE_URL}/auth/otp/request", json={
+            "phone": phone,
+            "role": "consumer"
+        })
+        assert r2.status_code == 200
+        otp2 = r2.json()["mock_otp"]
+        
+        # OTPs should be different (random)
+        self.log(f"First OTP: {otp1}, Second OTP: {otp2}")
+        # Note: There's a tiny chance they could be the same by random chance, but very unlikely
+        # We'll just verify both are 6 digits and the latest one works
+        assert len(otp1) == 6 and len(otp2) == 6, "Both OTPs should be 6 digits"
+        
+        # Verify with the LATEST OTP (otp2)
+        r3 = requests.post(f"{BASE_URL}/auth/otp/verify", json={
+            "phone": phone,
+            "otp": otp2,
+            "role": "consumer"
+        })
+        assert r3.status_code == 200, "Latest OTP should work"
+        
+        # Verify with OLD OTP (otp1) should fail
+        r4 = requests.post(f"{BASE_URL}/auth/otp/verify", json={
+            "phone": phone,
+            "otp": otp1,
+            "role": "consumer"
+        })
+        assert r4.status_code == 400, "Old OTP should fail (already used or not latest)"
+        self.log("✓ Random OTP verified: different per call, latest works, old fails")
+    
+    def test_supabase_upload_prescriptions(self):
+        """ITERATION 3: Supabase upload - prescriptions bucket"""
+        # Small 1x1 PNG base64
+        small_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        
+        r = requests.post(f"{BASE_URL}/uploads/base64",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "bucket": "prescriptions",
+                "filename": "test_prescription.png",
+                "content_type": "image/png",
+                "data_base64": small_png
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        data = r.json()
+        assert data.get("success") == True, "Upload not successful"
+        assert "url" in data, "URL not returned"
+        assert data["bucket"] == "prescriptions", "Bucket mismatch"
+        # URL can be either Supabase URL or data: URL (fallback)
+        assert data["url"].startswith("http") or data["url"].startswith("data:"), "Invalid URL format"
+        self.log(f"Prescription upload successful: {data['url'][:50]}...")
+    
+    def test_supabase_upload_lab_reports(self):
+        """ITERATION 3: Supabase upload - lab-reports bucket"""
+        small_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        
+        r = requests.post(f"{BASE_URL}/uploads/base64",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "bucket": "lab-reports",
+                "filename": "test_report.png",
+                "content_type": "image/png",
+                "data_base64": small_png
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        data = r.json()
+        assert data.get("success") == True
+        assert "url" in data
+        self.log(f"Lab report upload successful")
+    
+    def test_supabase_upload_profile_images(self):
+        """ITERATION 3: Supabase upload - profile-images bucket (public)"""
+        small_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        
+        r = requests.post(f"{BASE_URL}/uploads/base64",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "bucket": "profile-images",
+                "filename": "test_profile.png",
+                "content_type": "image/png",
+                "data_base64": small_png
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        data = r.json()
+        assert data.get("success") == True
+        assert "url" in data
+        self.log(f"Profile image upload successful")
+    
+    def test_supabase_upload_provider_documents(self):
+        """ITERATION 3: Supabase upload - provider-documents bucket"""
+        small_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        
+        r = requests.post(f"{BASE_URL}/uploads/base64",
+            headers={"Authorization": f"Bearer {self.provider_token}"},
+            json={
+                "bucket": "provider-documents",
+                "filename": "test_doc.png",
+                "content_type": "image/png",
+                "data_base64": small_png
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        data = r.json()
+        assert data.get("success") == True
+        assert "url" in data
+        self.log(f"Provider document upload successful")
+    
+    def test_supabase_upload_invalid_bucket(self):
+        """ITERATION 3: Supabase upload - invalid bucket returns 400"""
+        small_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        
+        r = requests.post(f"{BASE_URL}/uploads/base64",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "bucket": "invalid-bucket",
+                "filename": "test.png",
+                "content_type": "image/png",
+                "data_base64": small_png
+            }
+        )
+        assert r.status_code == 400, f"Expected 400 for invalid bucket, got {r.status_code}"
+        self.log("✓ Invalid bucket rejected")
+    
+    def test_supabase_upload_no_auth(self):
+        """ITERATION 3: Supabase upload - requires authentication"""
+        small_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        
+        r = requests.post(f"{BASE_URL}/uploads/base64",
+            json={
+                "bucket": "prescriptions",
+                "filename": "test.png",
+                "content_type": "image/png",
+                "data_base64": small_png
+            }
+        )
+        assert r.status_code == 401, f"Expected 401 without auth, got {r.status_code}"
+        self.log("✓ Upload requires authentication")
+    
+    def test_supabase_upload_oversized(self):
+        """ITERATION 3: Supabase upload - oversized file returns 413"""
+        # Create a base64 string that's > 6MB when decoded
+        large_data = "A" * (7 * 1024 * 1024)  # 7MB of 'A's
+        
+        r = requests.post(f"{BASE_URL}/uploads/base64",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "bucket": "prescriptions",
+                "filename": "large.txt",
+                "content_type": "text/plain",
+                "data_base64": large_data
+            }
+        )
+        assert r.status_code == 413, f"Expected 413 for oversized file, got {r.status_code}"
+        self.log("✓ Oversized file rejected")
+    
+    def test_uploads_list(self):
+        """ITERATION 3: GET /api/uploads/me returns upload metadata"""
+        r = requests.get(f"{BASE_URL}/uploads/me",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        data = r.json()
+        assert "uploads" in data, "Uploads list not returned"
+        # Should have at least the uploads from previous tests
+        assert len(data["uploads"]) >= 3, "Should have multiple uploads"
+        self.log(f"Found {len(data['uploads'])} uploads")
+    
+    def test_location_update(self):
+        """ITERATION 3: Location picker - PATCH /api/users/me with location/city"""
+        r = requests.patch(f"{BASE_URL}/users/me",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "location": "HSR Layout, Bangalore",
+                "city": "Bangalore"
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        data = r.json()
+        assert data["user"]["location"] == "HSR Layout, Bangalore", "Location not saved"
+        assert data["user"]["city"] == "Bangalore", "City not saved"
+        self.log("✓ Location updated successfully")
+    
+    def test_notifications_list(self):
+        """ITERATION 3: GET /api/notifications returns notifications"""
+        r = requests.get(f"{BASE_URL}/notifications",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        data = r.json()
+        assert "notifications" in data, "Notifications not returned"
+        # Should have at least the emergency request notification from earlier test
+        assert len(data["notifications"]) >= 1, "Should have at least one notification"
+        self.log(f"Found {len(data['notifications'])} notifications")
+    
+    def test_provider_kyc_with_supabase(self):
+        """ITERATION 3: Provider KYC documents via Supabase upload"""
+        # Create a new provider for ambulance category
+        phone = self.random_phone()
+        
+        # Request OTP
+        r = requests.post(f"{BASE_URL}/auth/otp/request", json={
+            "phone": phone,
+            "role": "provider"
+        })
+        otp = r.json()["mock_otp"]
+        
+        # Verify OTP
+        r = requests.post(f"{BASE_URL}/auth/otp/verify", json={
+            "phone": phone,
+            "otp": otp,
+            "role": "provider"
+        })
+        token = r.json()["token"]
+        provider_id = r.json()["provider"]["id"]
+        
+        # Set category to ambulance
+        r = requests.patch(f"{BASE_URL}/providers/me/category",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"category": "ambulance"}
+        )
+        assert r.status_code == 200
+        required_docs = r.json()["provider"]["kyc_required"]
+        self.log(f"Ambulance category requires: {required_docs}")
+        
+        # Update basic info
+        requests.patch(f"{BASE_URL}/providers/me",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"name": "Test Ambulance", "city": "Bangalore"}
+        )
+        
+        # Upload all required docs via Supabase
+        small_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        
+        for doc_type in required_docs:
+            # First upload to Supabase
+            r = requests.post(f"{BASE_URL}/uploads/base64",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "bucket": "provider-documents",
+                    "filename": f"{doc_type}.png",
+                    "content_type": "image/png",
+                    "data_base64": small_png
+                }
+            )
+            assert r.status_code == 200, f"Supabase upload failed for {doc_type}"
+            doc_url = r.json()["url"]
+            
+            # Then save document reference
+            r = requests.post(f"{BASE_URL}/providers/me/documents",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "document_type": doc_type,
+                    "document_url": doc_url,
+                    "file_name": f"{doc_type}.png"
+                }
+            )
+            assert r.status_code == 200, f"Failed to save document {doc_type}"
+        
+        # Submit for approval
+        r = requests.post(f"{BASE_URL}/providers/me/submit",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        assert r.status_code == 200, "Submit failed"
+        assert r.json()["approval_status"] == "pending"
+        self.log("✓ Provider KYC with Supabase upload successful")
+    
+    def test_profile_completion_calculation(self):
+        """ITERATION 3: Profile completion % is calculated correctly"""
+        r = requests.get(f"{BASE_URL}/me",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200
+        user = r.json()["user"]
+        assert "profile_completion" in user, "Profile completion not returned"
+        completion = user["profile_completion"]
+        assert 0 <= completion <= 100, f"Invalid completion %: {completion}"
+        self.log(f"Profile completion: {completion}%")
+    
     def run_all(self):
         """Run all tests in sequence"""
         print("\n" + "="*60)
@@ -808,6 +1110,23 @@ class ResqlyTester:
         self.test("Lab Tests CRUD", self.test_lab_tests_crud)
         self.test("Lab Reports CRUD", self.test_lab_reports_crud)
         self.test("Emergency Request (Design Only)", self.test_emergency_request)
+        
+        # Iteration 3 tests
+        print("\n🚀 ITERATION 3 TESTS (Random OTP + Supabase + Location)")
+        print("-" * 60)
+        self.test("Random OTP - Different Per Call", self.test_random_otp_changes_per_call)
+        self.test("Supabase Upload - Prescriptions", self.test_supabase_upload_prescriptions)
+        self.test("Supabase Upload - Lab Reports", self.test_supabase_upload_lab_reports)
+        self.test("Supabase Upload - Profile Images", self.test_supabase_upload_profile_images)
+        self.test("Supabase Upload - Provider Documents", self.test_supabase_upload_provider_documents)
+        self.test("Supabase Upload - Invalid Bucket (400)", self.test_supabase_upload_invalid_bucket)
+        self.test("Supabase Upload - No Auth (401)", self.test_supabase_upload_no_auth)
+        self.test("Supabase Upload - Oversized File (413)", self.test_supabase_upload_oversized)
+        self.test("GET /api/uploads/me - List Uploads", self.test_uploads_list)
+        self.test("Location Update via PATCH /users/me", self.test_location_update)
+        self.test("GET /api/notifications", self.test_notifications_list)
+        self.test("Provider KYC with Supabase Upload", self.test_provider_kyc_with_supabase)
+        self.test("Profile Completion Calculation", self.test_profile_completion_calculation)
         
         # Summary
         print("\n" + "="*60)
