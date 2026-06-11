@@ -56,7 +56,7 @@ export default function ConsumerEmergency() {
     <div className="resqly-shell">
       <div className="resqly-frame flex flex-col min-h-screen">
         <MobileShell title="Emergency Profile" header>
-          <div className="px-5 py-5">
+          <div className="px-5 py-5 pb-32">
             <div className="resqly-card p-5 bg-rose-50/40 border-rose-100">
               <HeartPulse className="w-6 h-6 text-rose-600" />
               <h2 className="text-lg font-semibold text-slate-900 mt-2">Critical medical info</h2>

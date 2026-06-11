@@ -1,34 +1,42 @@
 [
   {
-    "content": "Phase 2: Backend - auth (mock OTP + email), models, KYC, admin endpoints",
+    "content": "Backend: extend user profile + Family/Prescriptions/LabTests/Emergency Requests endpoints",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Frontend - design system, routing, landing page",
+    "content": "Frontend: Splash screen + auto-launch into Consumer (no role landing)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Frontend - consumer flow (login, profile, home, services, waitlist, emergency profile)",
+    "content": "Frontend: New liquid-glass dock BottomNav (Home/Prescriptions/Lab Tests/Family/Profile)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Frontend - provider flow (login, category, KYC, status, dashboard, orders, earnings, reviews, profile)",
+    "content": "Frontend: Consumer Home redesign - reorder services, Emergency Floating Action Card, Ranger CTA update, 'Join Waitlist' label",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Frontend - admin login + approve/reject UI",
+    "content": "Frontend: Practo-inspired Profile with Personal/Medical/Lifestyle tabs + completion %",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Compliance pages (privacy, terms, support, contact, delete account)",
+    "content": "Frontend: Family management page",
     "status": "completed"
   },
   {
-    "content": "Phase 2: All user stories covered in development",
+    "content": "Frontend: Prescriptions (upload + history) page",
     "status": "completed"
   },
   {
-    "content": "Phase 2: End-to-end testing using testing_agent_v3",
+    "content": "Frontend: Lab Tests (upcoming/past/reports/upload) page",
     "status": "completed"
+  },
+  {
+    "content": "Frontend: Emergency request flow (request location → confirm) — design only, future provider routing",
+    "status": "completed"
+  },
+  {
+    "content": "End-to-end testing with testing_agent_v3",
+    "status": "in_progress"
   }
 ]

@@ -43,7 +43,7 @@ export default function ConsumerWaitlist() {
     <div className="resqly-shell">
       <div className="resqly-frame flex flex-col min-h-screen">
         <MobileShell title="Priority Access" header>
-          <div className="px-5 py-5">
+          <div className="px-5 py-5 pb-32">
             <div className="resqly-card p-5 bg-blue-50/50 border-blue-100">
               <Heart className="w-6 h-6 text-blue-700" />
               <h2 className="text-lg font-semibold text-slate-900 mt-2">Get priority access</h2>

@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import * as Icons from 'lucide-react';
 import { ShieldCheck } from 'lucide-react';
 import api from '@/lib/api';
 import MobileShell from '@/components/MobileShell';
-import ServiceIcon from '@/components/ServiceIcon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
-import { CITIES } from '@/lib/constants';
+import { CITIES, CONSUMER_SERVICES, SERVICE_LABELS } from '@/lib/constants';
 
 export default function ConsumerServiceDetail() {
   const { serviceKey } = useParams();
   const { me } = useAuth();
-  const [services, setServices] = useState([]);
   const [joined, setJoined] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [name, setName] = useState('');
@@ -21,7 +20,6 @@ export default function ConsumerServiceDetail() {
   const [city, setCity] = useState('Bangalore');
 
   useEffect(() => {
-    api.get('/services').then(({ data }) => setServices(data.services)).catch(() => {});
     if (me) {
       setName(me.name || '');
       setPhone(me.phone || '');
@@ -29,13 +27,12 @@ export default function ConsumerServiceDetail() {
     }
   }, [me]);
 
-  const service = services.find((s) => s.key === serviceKey);
+  const service = CONSUMER_SERVICES.find((s) => s.key === serviceKey)
+    || { key: serviceKey, label: SERVICE_LABELS[serviceKey] || serviceKey, icon: 'Activity', bg: '#E0F2FE', fg: '#0284C7' };
+  const Icon = Icons[service.icon] || Icons.Activity;
 
   const join = async () => {
-    if (!name || !phone || !city) {
-      toast.error('Please fill all fields');
-      return;
-    }
+    if (!name || !phone || !city) { toast.error('Please fill all fields'); return; }
     setSubmitting(true);
     try {
       await api.post('/waitlist', { name, phone, city, service_interest: serviceKey });
@@ -49,12 +46,14 @@ export default function ConsumerServiceDetail() {
   };
 
   return (
-    <MobileShell title={service?.label || 'Service'}>
+    <MobileShell title={service.label}>
       <div className="px-5 py-5">
         <div className="resqly-card p-5 flex items-center gap-4">
-          {service && <ServiceIcon serviceKey={service.key} size={32} />}
+          <div className="icon-tile" style={{ background: service.bg }}>
+            <Icon size={28} color={service.fg} strokeWidth={2.2} />
+          </div>
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">{service?.label}</h3>
+            <h3 className="text-lg font-semibold text-slate-900">{service.label}</h3>
             <p className="text-xs text-slate-500 mt-0.5">Pre-launch service</p>
           </div>
         </div>
@@ -63,7 +62,7 @@ export default function ConsumerServiceDetail() {
           <div className="flex gap-2 items-start">
             <ShieldCheck className="w-5 h-5 text-blue-700 mt-0.5" />
             <p className="text-sm text-slate-700">
-              We are onboarding verified providers in your area. Join the waitlist and we will notify you the moment <b>{service?.label || 'this service'}</b> goes live in your city.
+              We are onboarding verified providers in your area. Join the waitlist and we will notify you the moment <b>{service.label}</b> goes live in your city.
             </p>
           </div>
         </div>

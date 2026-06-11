@@ -523,6 +523,230 @@ class ResqlyTester:
         data = r.json()
         assert data.get("success") == True
     
+    # ========== NEW V1 REFINEMENT TESTS ==========
+    
+    def test_extended_profile_fields(self):
+        """V1 REFINEMENT: Extended profile fields (Personal/Medical/Lifestyle)"""
+        r = requests.patch(f"{BASE_URL}/users/me",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "gender": "Male",
+                "dob": "1990-05-15",
+                "marital_status": "Single",
+                "height_cm": 175.5,
+                "weight_kg": 70.0,
+                "current_medications": ["Aspirin", "Vitamin D"],
+                "past_medications": ["Paracetamol"],
+                "chronic_diseases": ["Hypertension"],
+                "injuries": ["Knee injury 2020"],
+                "surgeries": ["Appendectomy 2015"],
+                "smoking_habits": "Never",
+                "alcohol_consumption": "Occasionally",
+                "activity_level": "Moderately active",
+                "food_preference": "Vegetarian",
+                "occupation": "Software Engineer"
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        data = r.json()
+        user = data["user"]
+        assert user["gender"] == "Male", "Gender not saved"
+        assert user["dob"] == "1990-05-15", "DOB not saved"
+        assert user["marital_status"] == "Single", "Marital status not saved"
+        assert user["height_cm"] == 175.5, "Height not saved"
+        assert user["weight_kg"] == 70.0, "Weight not saved"
+        assert "Aspirin" in user["current_medications"], "Current medications not saved"
+        assert user["smoking_habits"] == "Never", "Smoking habits not saved"
+        assert user["occupation"] == "Software Engineer", "Occupation not saved"
+        assert "profile_completion" in user, "Profile completion not returned"
+        self.log(f"Profile completion: {user['profile_completion']}%")
+    
+    def test_family_members_crud(self):
+        """V1 REFINEMENT: Family members CRUD operations"""
+        # Create family member
+        r = requests.post(f"{BASE_URL}/users/me/family",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "name": "Jane Doe",
+                "relation": "Spouse",
+                "phone": "9876543210",
+                "dob": "1992-08-20",
+                "gender": "Female",
+                "blood_group": "B+",
+                "medical_notes": "Allergic to penicillin"
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        member = r.json()["member"]
+        member_id = member["id"]
+        assert member["name"] == "Jane Doe", "Member name not saved"
+        assert member["relation"] == "Spouse", "Relation not saved"
+        
+        # List family members
+        r = requests.get(f"{BASE_URL}/users/me/family",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        members = r.json()["members"]
+        assert len(members) >= 1, "Family member not in list"
+        
+        # Update family member (need to send all required fields due to model validation)
+        r = requests.patch(f"{BASE_URL}/users/me/family/{member_id}",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "name": "Jane Doe",
+                "relation": "Spouse",
+                "medical_notes": "Updated notes"
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        
+        # Delete family member
+        r = requests.delete(f"{BASE_URL}/users/me/family/{member_id}",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        assert r.json().get("success") == True
+    
+    def test_prescriptions_crud(self):
+        """V1 REFINEMENT: Prescriptions CRUD operations"""
+        # Create prescription
+        r = requests.post(f"{BASE_URL}/users/me/prescriptions",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "doctor_name": "Dr. Smith",
+                "title": "Cold & Cough",
+                "date": "2025-08-15",
+                "notes": "Take after meals",
+                "image_url": "data:image/png;base64,test"
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        presc = r.json()["prescription"]
+        presc_id = presc["id"]
+        assert presc["doctor_name"] == "Dr. Smith", "Doctor name not saved"
+        
+        # List prescriptions
+        r = requests.get(f"{BASE_URL}/users/me/prescriptions",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        items = r.json()["prescriptions"]
+        assert len(items) >= 1, "Prescription not in list"
+        
+        # Delete prescription
+        r = requests.delete(f"{BASE_URL}/users/me/prescriptions/{presc_id}",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        assert r.json().get("success") == True
+    
+    def test_lab_tests_crud(self):
+        """V1 REFINEMENT: Lab tests CRUD operations"""
+        # Create upcoming test
+        r = requests.post(f"{BASE_URL}/users/me/lab-tests",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "test_name": "Complete Blood Count",
+                "status": "upcoming",
+                "scheduled_date": "2025-09-01",
+                "lab_name": "Apollo Diagnostics",
+                "notes": "Fasting required"
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        test = r.json()["test"]
+        test_id = test["id"]
+        assert test["test_name"] == "Complete Blood Count", "Test name not saved"
+        assert test["status"] == "upcoming", "Status not saved"
+        
+        # List lab tests
+        r = requests.get(f"{BASE_URL}/users/me/lab-tests",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        tests = r.json()["tests"]
+        assert len(tests) >= 1, "Lab test not in list"
+        
+        # Update lab test (need to send all required fields due to model validation)
+        r = requests.patch(f"{BASE_URL}/users/me/lab-tests/{test_id}",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "test_name": "Complete Blood Count",
+                "status": "past"
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        
+        # Delete lab test
+        r = requests.delete(f"{BASE_URL}/users/me/lab-tests/{test_id}",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        assert r.json().get("success") == True
+    
+    def test_lab_reports_crud(self):
+        """V1 REFINEMENT: Lab reports CRUD operations"""
+        # Create report
+        r = requests.post(f"{BASE_URL}/users/me/lab-reports",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "title": "Blood Test Report",
+                "test_name": "CBC",
+                "lab_name": "Apollo",
+                "date": "2025-08-10",
+                "file_url": "data:image/png;base64,test"
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        report = r.json()["report"]
+        report_id = report["id"]
+        assert report["title"] == "Blood Test Report", "Title not saved"
+        
+        # List reports
+        r = requests.get(f"{BASE_URL}/users/me/lab-reports",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        reports = r.json()["reports"]
+        assert len(reports) >= 1, "Report not in list"
+        
+        # Delete report
+        r = requests.delete(f"{BASE_URL}/users/me/lab-reports/{report_id}",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        assert r.json().get("success") == True
+    
+    def test_emergency_request(self):
+        """V1 REFINEMENT: Emergency ambulance request (design only)"""
+        # Create emergency request
+        r = requests.post(f"{BASE_URL}/emergency/request",
+            headers={"Authorization": f"Bearer {self.consumer_token}"},
+            json={
+                "latitude": 12.9716,
+                "longitude": 77.5946,
+                "address": "Koramangala, Bangalore",
+                "notes": "Chest pain, urgent",
+                "type": "ambulance"
+            }
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        data = r.json()
+        assert data.get("success") == True, "Request not successful"
+        request = data["request"]
+        assert request["status"] == "logged", "Status should be 'logged'"
+        assert "candidate_provider_count" in request, "Candidate count not returned"
+        self.log(f"Emergency request logged with {request['candidate_provider_count']} candidates")
+        
+        # List emergency requests
+        r = requests.get(f"{BASE_URL}/emergency/requests",
+            headers={"Authorization": f"Bearer {self.consumer_token}"}
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+        requests_list = r.json()["requests"]
+        assert len(requests_list) >= 1, "Emergency request not in list"
+    
     def run_all(self):
         """Run all tests in sequence"""
         print("\n" + "="*60)
@@ -574,6 +798,16 @@ class ResqlyTester:
         print("\n📋 COMPLIANCE TESTS")
         print("-" * 60)
         self.test("Delete Account Request", self.test_delete_account_request)
+        
+        # V1 Refinement tests
+        print("\n🆕 V1 REFINEMENT TESTS (New Features)")
+        print("-" * 60)
+        self.test("Extended Profile Fields", self.test_extended_profile_fields)
+        self.test("Family Members CRUD", self.test_family_members_crud)
+        self.test("Prescriptions CRUD", self.test_prescriptions_crud)
+        self.test("Lab Tests CRUD", self.test_lab_tests_crud)
+        self.test("Lab Reports CRUD", self.test_lab_reports_crud)
+        self.test("Emergency Request (Design Only)", self.test_emergency_request)
         
         # Summary
         print("\n" + "="*60)

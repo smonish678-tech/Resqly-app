@@ -1,9 +1,9 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from '@/lib/auth';
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from '@/lib/auth';
 import { Toaster } from '@/components/ui/sonner';
 import PrivateRoute from '@/components/PrivateRoute';
-
-import Landing from '@/pages/Landing';
+import Splash from '@/components/Splash';
 
 // Consumer
 import ConsumerLogin from '@/pages/consumer/ConsumerLogin';
@@ -14,6 +14,10 @@ import ConsumerWaitlist from '@/pages/consumer/ConsumerWaitlist';
 import ConsumerEmergency from '@/pages/consumer/ConsumerEmergency';
 import ConsumerProfile from '@/pages/consumer/ConsumerProfile';
 import ConsumerNotifications from '@/pages/consumer/ConsumerNotifications';
+import ConsumerFamily from '@/pages/consumer/ConsumerFamily';
+import ConsumerPrescriptions from '@/pages/consumer/ConsumerPrescriptions';
+import ConsumerLabTests from '@/pages/consumer/ConsumerLabTests';
+import ConsumerEmergencyRequest from '@/pages/consumer/ConsumerEmergencyRequest';
 
 // Provider
 import ProviderLogin from '@/pages/provider/ProviderLogin';
@@ -43,12 +47,29 @@ import Permissions from '@/pages/compliance/Permissions';
 
 import '@/App.css';
 
+function RootRedirect() {
+  // Consumer is the default experience. If already logged in as consumer, go to home.
+  // Otherwise, go to consumer login.
+  const { token, role, loading } = useAuth();
+  if (loading) return null;
+  if (token && role === 'consumer') return <Navigate to="/consumer/home" replace />;
+  if (token && role === 'provider') return <Navigate to="/provider/dashboard" replace />;
+  if (token && role === 'admin') return <Navigate to="/admin/dashboard" replace />;
+  return <Navigate to="/consumer/login" replace />;
+}
+
 function App() {
+  const [splashed, setSplashed] = useState(() => sessionStorage.getItem('resqly_splashed') === '1');
+  useEffect(() => {
+    if (splashed) sessionStorage.setItem('resqly_splashed', '1');
+  }, [splashed]);
+
   return (
     <AuthProvider>
+      {!splashed && <Splash onDone={() => { sessionStorage.setItem('resqly_splashed', '1'); setSplashed(true); }} />}
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Landing />} />
+          <Route path="/" element={<RootRedirect />} />
 
           {/* Consumer */}
           <Route path="/consumer/login" element={<ConsumerLogin />} />
@@ -57,8 +78,12 @@ function App() {
           <Route path="/consumer/service/:serviceKey" element={<PrivateRoute allow={['consumer']}><ConsumerServiceDetail /></PrivateRoute>} />
           <Route path="/consumer/waitlist" element={<PrivateRoute allow={['consumer']}><ConsumerWaitlist /></PrivateRoute>} />
           <Route path="/consumer/emergency" element={<PrivateRoute allow={['consumer']}><ConsumerEmergency /></PrivateRoute>} />
+          <Route path="/consumer/emergency-request" element={<PrivateRoute allow={['consumer']}><ConsumerEmergencyRequest /></PrivateRoute>} />
           <Route path="/consumer/profile" element={<PrivateRoute allow={['consumer']}><ConsumerProfile /></PrivateRoute>} />
           <Route path="/consumer/notifications" element={<PrivateRoute allow={['consumer']}><ConsumerNotifications /></PrivateRoute>} />
+          <Route path="/consumer/family" element={<PrivateRoute allow={['consumer']}><ConsumerFamily /></PrivateRoute>} />
+          <Route path="/consumer/prescriptions" element={<PrivateRoute allow={['consumer']}><ConsumerPrescriptions /></PrivateRoute>} />
+          <Route path="/consumer/lab-tests" element={<PrivateRoute allow={['consumer']}><ConsumerLabTests /></PrivateRoute>} />
 
           {/* Provider */}
           <Route path="/provider/login" element={<ProviderLogin />} />

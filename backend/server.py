@@ -163,6 +163,67 @@ class UserProfileUpdate(BaseModel):
     medical_conditions: Optional[List[str]] = None
     preferred_hospital: Optional[str] = None
     emergency_contacts: Optional[List[EmergencyContact]] = None
+    # Extended personal
+    gender: Optional[str] = None
+    dob: Optional[str] = None
+    marital_status: Optional[str] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    profile_photo: Optional[str] = None
+    # Extended medical
+    current_medications: Optional[List[str]] = None
+    past_medications: Optional[List[str]] = None
+    chronic_diseases: Optional[List[str]] = None
+    injuries: Optional[List[str]] = None
+    surgeries: Optional[List[str]] = None
+    # Lifestyle
+    smoking_habits: Optional[str] = None
+    alcohol_consumption: Optional[str] = None
+    activity_level: Optional[str] = None
+    food_preference: Optional[str] = None
+    occupation: Optional[str] = None
+
+
+class FamilyMemberCreate(BaseModel):
+    name: str
+    relation: str  # spouse | son | daughter | father | mother | dependent | other
+    phone: Optional[str] = None
+    dob: Optional[str] = None
+    gender: Optional[str] = None
+    blood_group: Optional[str] = None
+    medical_notes: Optional[str] = None
+
+
+class PrescriptionCreate(BaseModel):
+    doctor_name: str
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    date: Optional[str] = None
+    image_url: Optional[str] = None  # base64 data URL
+
+
+class LabTestCreate(BaseModel):
+    test_name: str
+    status: str  # upcoming | past
+    scheduled_date: Optional[str] = None
+    lab_name: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class LabReportCreate(BaseModel):
+    title: str
+    test_name: Optional[str] = None
+    lab_name: Optional[str] = None
+    date: Optional[str] = None
+    file_url: Optional[str] = None  # base64 data URL
+
+
+class EmergencyRequestCreate(BaseModel):
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    type: str = "ambulance"
 
 
 class WaitlistCreate(BaseModel):
@@ -259,6 +320,33 @@ SPECIALIZATIONS = {
 }
 
 
+def calc_user_profile_completion(user: Dict[str, Any]) -> int:
+    """Calculate consumer profile completion percentage across all sections."""
+    fields = [
+        # Personal
+        "name", "email", "phone", "gender", "dob", "blood_group",
+        "marital_status", "height_cm", "weight_kg", "city", "location",
+        "profile_photo", "preferred_hospital",
+        # Medical
+        "allergies", "current_medications", "past_medications",
+        "chronic_diseases", "medical_conditions", "surgeries",
+        # Lifestyle
+        "smoking_habits", "alcohol_consumption", "activity_level",
+        "food_preference", "occupation",
+        # Emergency
+        "emergency_contacts",
+    ]
+    filled = 0
+    for f in fields:
+        v = user.get(f)
+        if isinstance(v, list):
+            if len(v) > 0:
+                filled += 1
+        elif v not in (None, "", 0):
+            filled += 1
+    return int(round((filled / len(fields)) * 100))
+
+
 def calc_profile_completion(provider: Dict[str, Any]) -> int:
     """Calculate profile completion percentage."""
     fields = [
@@ -339,6 +427,25 @@ async def verify_otp(payload: OTPVerify):
                 "allergies": [],
                 "medical_conditions": [],
                 "preferred_hospital": "",
+                # Extended personal
+                "gender": "",
+                "dob": "",
+                "marital_status": "",
+                "height_cm": None,
+                "weight_kg": None,
+                "profile_photo": "",
+                # Extended medical
+                "current_medications": [],
+                "past_medications": [],
+                "chronic_diseases": [],
+                "injuries": [],
+                "surgeries": [],
+                # Lifestyle
+                "smoking_habits": "",
+                "alcohol_consumption": "",
+                "activity_level": "",
+                "food_preference": "",
+                "occupation": "",
                 "created_at": now_iso(),
             }
             await db.users.insert_one(user.copy())
@@ -461,6 +568,8 @@ async def reset_password(payload: ResetPasswordRequest):
 # ---------------- Consumer (User Profile) ----------------
 @api.get("/me")
 async def get_me(user: Dict[str, Any] = Depends(current_user)):
+    if user.get("role") == "consumer":
+        user["profile_completion"] = calc_user_profile_completion(user)
     return {"user": user}
 
 
@@ -477,7 +586,231 @@ async def update_my_profile(
     if updates:
         await db.users.update_one({"id": user["id"]}, {"$set": updates})
     doc = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    doc["profile_completion"] = calc_user_profile_completion(doc)
     return {"user": doc}
+
+
+# ---------------- Family Members ----------------
+@api.get("/users/me/family")
+async def list_family(user: Dict[str, Any] = Depends(require_role("consumer"))):
+    cursor = db.family_members.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    members = await cursor.to_list(100)
+    return {"members": members}
+
+
+@api.post("/users/me/family")
+async def add_family(
+    payload: FamilyMemberCreate,
+    user: Dict[str, Any] = Depends(require_role("consumer")),
+):
+    m = payload.model_dump()
+    m["id"] = new_id()
+    m["user_id"] = user["id"]
+    m["created_at"] = now_iso()
+    await db.family_members.insert_one(m.copy())
+    m.pop("_id", None)
+    return {"member": m}
+
+
+@api.patch("/users/me/family/{member_id}")
+async def update_family(
+    member_id: str,
+    payload: FamilyMemberCreate,
+    user: Dict[str, Any] = Depends(require_role("consumer")),
+):
+    updates = payload.model_dump(exclude_none=True)
+    res = await db.family_members.update_one(
+        {"id": member_id, "user_id": user["id"]}, {"$set": updates}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Member not found")
+    doc = await db.family_members.find_one({"id": member_id}, {"_id": 0})
+    return {"member": doc}
+
+
+@api.delete("/users/me/family/{member_id}")
+async def delete_family(
+    member_id: str, user: Dict[str, Any] = Depends(require_role("consumer"))
+):
+    res = await db.family_members.delete_one({"id": member_id, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return {"success": True}
+
+
+# ---------------- Prescriptions ----------------
+@api.get("/users/me/prescriptions")
+async def list_prescriptions(user: Dict[str, Any] = Depends(require_role("consumer"))):
+    cursor = db.prescriptions.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    items = await cursor.to_list(100)
+    return {"prescriptions": items}
+
+
+@api.post("/users/me/prescriptions")
+async def add_prescription(
+    payload: PrescriptionCreate,
+    user: Dict[str, Any] = Depends(require_role("consumer")),
+):
+    p = payload.model_dump()
+    p["id"] = new_id()
+    p["user_id"] = user["id"]
+    p["created_at"] = now_iso()
+    if not p.get("date"):
+        p["date"] = now_iso()[:10]
+    await db.prescriptions.insert_one(p.copy())
+    p.pop("_id", None)
+    return {"prescription": p}
+
+
+@api.delete("/users/me/prescriptions/{p_id}")
+async def delete_prescription(
+    p_id: str, user: Dict[str, Any] = Depends(require_role("consumer"))
+):
+    res = await db.prescriptions.delete_one({"id": p_id, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"success": True}
+
+
+# ---------------- Lab Tests ----------------
+@api.get("/users/me/lab-tests")
+async def list_lab_tests(user: Dict[str, Any] = Depends(require_role("consumer"))):
+    cursor = db.lab_tests.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    items = await cursor.to_list(200)
+    return {"tests": items}
+
+
+@api.post("/users/me/lab-tests")
+async def add_lab_test(
+    payload: LabTestCreate,
+    user: Dict[str, Any] = Depends(require_role("consumer")),
+):
+    t = payload.model_dump()
+    t["id"] = new_id()
+    t["user_id"] = user["id"]
+    t["created_at"] = now_iso()
+    await db.lab_tests.insert_one(t.copy())
+    t.pop("_id", None)
+    return {"test": t}
+
+
+@api.patch("/users/me/lab-tests/{t_id}")
+async def update_lab_test(
+    t_id: str,
+    payload: LabTestCreate,
+    user: Dict[str, Any] = Depends(require_role("consumer")),
+):
+    updates = payload.model_dump(exclude_none=True)
+    res = await db.lab_tests.update_one(
+        {"id": t_id, "user_id": user["id"]}, {"$set": updates}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    doc = await db.lab_tests.find_one({"id": t_id}, {"_id": 0})
+    return {"test": doc}
+
+
+@api.delete("/users/me/lab-tests/{t_id}")
+async def delete_lab_test(
+    t_id: str, user: Dict[str, Any] = Depends(require_role("consumer"))
+):
+    res = await db.lab_tests.delete_one({"id": t_id, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"success": True}
+
+
+@api.get("/users/me/lab-reports")
+async def list_lab_reports(user: Dict[str, Any] = Depends(require_role("consumer"))):
+    cursor = db.lab_reports.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    items = await cursor.to_list(100)
+    return {"reports": items}
+
+
+@api.post("/users/me/lab-reports")
+async def add_lab_report(
+    payload: LabReportCreate,
+    user: Dict[str, Any] = Depends(require_role("consumer")),
+):
+    r = payload.model_dump()
+    r["id"] = new_id()
+    r["user_id"] = user["id"]
+    r["created_at"] = now_iso()
+    if not r.get("date"):
+        r["date"] = now_iso()[:10]
+    await db.lab_reports.insert_one(r.copy())
+    r.pop("_id", None)
+    return {"report": r}
+
+
+@api.delete("/users/me/lab-reports/{r_id}")
+async def delete_lab_report(
+    r_id: str, user: Dict[str, Any] = Depends(require_role("consumer"))
+):
+    res = await db.lab_reports.delete_one({"id": r_id, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"success": True}
+
+
+# ---------------- Emergency Requests (design only - no real dispatch) ----------------
+@api.post("/emergency/request")
+async def emergency_request(
+    payload: EmergencyRequestCreate,
+    user: Dict[str, Any] = Depends(require_role("consumer")),
+):
+    """
+    Logs an emergency request. In V1 we DO NOT dispatch real ambulances.
+    Architecture is in place: when provider availability tracking and
+    routing are fully implemented, this endpoint will:
+      1) find nearby approved providers with availability_status='available'
+      2) create dispatch notifications
+      3) update request status as provider accepts
+    """
+    # Find candidate providers (approved + available) for design completeness
+    candidate_count = await db.providers.count_documents(
+        {
+            "approval_status": "approved",
+            "availability_status": "available",
+            "category": "ambulance",
+        }
+    )
+    req = {
+        "id": new_id(),
+        "user_id": user["id"],
+        "type": payload.type,
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "address": payload.address or "",
+        "notes": payload.notes or "",
+        "status": "logged",  # logged | searching | dispatched | completed | cancelled
+        "candidate_provider_count": candidate_count,
+        "created_at": now_iso(),
+    }
+    await db.emergency_requests.insert_one(req.copy())
+    req.pop("_id", None)
+    # Create a notification for the user (record-keeping)
+    await db.notifications.insert_one(
+        {
+            "id": new_id(),
+            "user_id": user["id"],
+            "title": "Emergency request logged",
+            "description": f"We logged your emergency request. {candidate_count} verified ambulance provider(s) in our network. Live dispatch is not active in this pre-launch version.",
+            "created_at": now_iso(),
+        }
+    )
+    return {"success": True, "request": req}
+
+
+@api.get("/emergency/requests")
+async def list_emergency_requests(
+    user: Dict[str, Any] = Depends(require_role("consumer")),
+):
+    cursor = db.emergency_requests.find({"user_id": user["id"]}, {"_id": 0}).sort(
+        "created_at", -1
+    )
+    items = await cursor.to_list(50)
+    return {"requests": items}
 
 
 # ---------------- Waitlist ----------------
