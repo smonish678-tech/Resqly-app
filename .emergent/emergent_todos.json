@@ -1,66 +1,14 @@
 [
   {
-    "content": "Frontend compile check (esbuild)",
-    "status": "completed"
-  },
-  {
-    "content": "Audit Supabase upload integration across forms (Profile, KYC, Prescriptions, LabTests)",
-    "status": "completed"
-  },
-  {
-    "content": "Verify Nominatim reverse geocoding in LocationPicker.jsx",
-    "status": "completed"
-  },
-  {
-    "content": "Verify mock OTP is random per request",
-    "status": "completed"
-  },
-  {
-    "content": "Verify greeting logic (morning/afternoon/evening + Hey {Name}/User)",
-    "status": "completed"
-  },
-  {
-    "content": "Verify notification red dot conditional logic",
-    "status": "completed"
-  },
-  {
-    "content": "Verify bottom nav: Home|Prescriptions|Lab Tests|Family|Profile",
-    "status": "completed"
-  },
-  {
-    "content": "Verify Emergency SOS card prominent on home",
-    "status": "completed"
-  },
-  {
-    "content": "Verify Resqly Ranger signup link is separate",
-    "status": "completed"
-  },
-  {
-    "content": "Verify emergency request stores live GPS location",
-    "status": "completed"
-  },
-  {
-    "content": "Verify prescriptions/lab reports viewable from profile",
-    "status": "completed"
-  },
-  {
-    "content": "Verify Resqly-branded loading/splash screen",
-    "status": "completed"
-  },
-  {
-    "content": "Capture screenshots for user visual review",
-    "status": "completed"
-  },
-  {
     "content": "Run testing_agent_v3 full E2E",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "Fix any bugs found by testing agent",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "Deliver deployment readiness report",
-    "status": "pending"
+    "status": "completed"
   }
 ]
