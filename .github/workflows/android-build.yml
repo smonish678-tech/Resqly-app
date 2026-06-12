@@ -10,6 +10,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: frontend
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -41,4 +45,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: resqly-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
