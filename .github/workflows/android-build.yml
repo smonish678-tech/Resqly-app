@@ -139,3 +139,4 @@ jobs:
       - name: Cleanup keystore from workspace
         if: always() && steps.keystore.outputs.skip == 'false'
         run: rm -f "${{ github.workspace }}/release-signing.jks"
+# trigger
