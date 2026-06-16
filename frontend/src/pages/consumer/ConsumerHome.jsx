@@ -37,7 +37,7 @@ export default function ConsumerHome() {
     <div className="resqly-shell">
       <div className="resqly-frame flex flex-col min-h-screen">
         {/* Top bar */}
-        <div className="px-5 pt-5 pb-2 flex items-center justify-between">
+        <div className="px-5 pt-16 pb-2 flex items-center justify-between">
           <button data-testid="home-location" onClick={() => navigate('/consumer/location')} className="flex items-start gap-2 text-left max-w-[70%]">
             <MapPin className="w-4 h-4 text-blue-700 mt-0.5 flex-shrink-0" />
             <div className="min-w-0">
@@ -68,15 +68,15 @@ export default function ConsumerHome() {
         </div>
 
         {/* Hero */}
-        <div className="mx-5 mt-3 rounded-3xl gradient-blue text-white p-5 relative overflow-hidden">
+        <div className="mx-5 mt-3 rounded-3xl gradient-blue text-white p-3 relative overflow-hidden">
           <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full bg-white/10" />
           <div className="absolute -right-10 bottom-0 w-24 h-24 rounded-full bg-white/10" />
-          <Logo size={26} withText={false} />
-          <h1 className="text-xl font-bold mt-2">Healthcare Simplified</h1>
-          <p className="text-sm text-blue-100 mt-1.5 max-w-[280px]">
+          <Logo size={20} withText={false} />
+          <h1 className="text-base font-bold mt-1">Healthcare Simplified</h1>
+          <p className="text-xs text-blue-100 mt-1 max-w-[260px]">
             Resqly is onboarding verified healthcare partners near you. Complete your profile for priority access.
           </p>
-          <Button data-testid="home-join-waitlist" onClick={() => navigate('/consumer/waitlist')} className="mt-4 bg-white text-blue-800 hover:bg-blue-50 font-semibold h-9">
+          <Button data-testid="home-join-waitlist" onClick={() => navigate('/consumer/waitlist')} className="mt-2 bg-white text-blue-800 hover:bg-blue-50 font-semibold h-8 text-xs">
             Join Waitlist <ArrowRight className="w-4 h-4 ml-1" />
           </Button>
         </div>
@@ -86,10 +86,10 @@ export default function ConsumerHome() {
           <button
             data-testid="home-emergency-sos"
             onClick={() => navigate('/consumer/emergency-request')}
-            className="emergency-fab w-full rounded-3xl p-4 text-white text-left flex items-center gap-4 active:scale-[0.98] transition-transform"
+            className="emergency-fab w-full rounded-3xl p-3 text-white text-left flex items-center gap-3 active:scale-[0.98] transition-transform"
           >
-            <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center relative flex-shrink-0">
-              <Ambulance className="w-7 h-7 text-white" strokeWidth={2.4} />
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center relative flex-shrink-0">
+              <Ambulance className="w-5 h-5 text-white" strokeWidth={2.4} />
               <span className="emergency-pulse absolute inset-0 rounded-2xl" />
             </div>
             <div className="flex-1 min-w-0">
@@ -97,7 +97,7 @@ export default function ConsumerHome() {
                 <span className="text-[10px] font-bold uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-full">SOS</span>
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-white/80">24/7</span>
               </div>
-              <div className="text-lg font-bold mt-1">Emergency SOS</div>
+              <div className="text-sm font-bold mt-0.5">Emergency SOS</div>
               <div className="text-xs text-white/85">Tap to request nearest verified ambulance</div>
             </div>
             <ChevronRight className="w-5 h-5 text-white flex-shrink-0" />
@@ -118,10 +118,10 @@ export default function ConsumerHome() {
                   data-testid={`service-${s.key}`}
                   key={s.key}
                   to={`/consumer/service/${s.key}`}
-                  className="resqly-card p-4 flex flex-col items-center justify-center gap-2 hover:shadow-md transition active:scale-[0.98]"
+                  className="resqly-card p-3 flex flex-col items-center justify-center gap-2 hover:shadow-md transition active:scale-[0.98]"
                 >
                   <div className="icon-tile" style={{ background: s.bg }}>
-                    <Icon size={28} color={s.fg} strokeWidth={2.2} />
+                    <Icon size={24} color={s.fg} strokeWidth={2.2} />
                   </div>
                   <span className="text-sm font-medium text-slate-800 mt-1">{s.label}</span>
                 </Link>
