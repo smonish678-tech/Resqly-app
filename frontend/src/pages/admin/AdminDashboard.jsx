@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import MobileShell from '@/components/MobileShell';
-import { LogOut, Users, ShieldCheck, Clock, XCircle } from 'lucide-react';
+import { LogOut, Users, ShieldCheck, Clock, XCircle, ShoppingBasket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const FILTERS = [
@@ -48,6 +48,12 @@ export default function AdminDashboard() {
                 <Card label="Waitlist" value={stats.waitlist.total} icon={<Users className="w-4 h-4 text-blue-600" />} />
               </div>
             )}
+
+            <button onClick={() => navigate('/admin/marketplace')} className="w-full mt-4 resqly-card p-4 flex items-center gap-3 text-left hover:shadow-md">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center"><ShoppingBasket className="w-5 h-5 text-emerald-700" /></div>
+              <div className="flex-1"><div className="font-semibold text-slate-900">Pharmacy & Lab Marketplace</div><div className="text-xs text-slate-500">Monitor requests, quotations, orders and live providers.</div></div>
+              <span className="text-sm font-bold text-emerald-700">{stats?.marketplace?.open_requests || 0} open</span>
+            </button>
 
             <div className="flex gap-2 mt-5 overflow-x-auto no-scrollbar">
               {FILTERS.map((f) => (

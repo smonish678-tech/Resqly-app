@@ -33,6 +33,8 @@ import ProviderReviews from '@/pages/provider/ProviderReviews';
 import ProviderDocuments from '@/pages/provider/ProviderDocuments';
 import ProviderProfile from '@/pages/provider/ProviderProfile';
 import ProviderSupport from '@/pages/provider/ProviderSupport';
+import ProviderMarketplace from '@/pages/provider/ProviderMarketplace';
+import AdminMarketplace from '@/pages/admin/AdminMarketplace';
 
 // Admin
 import AdminLogin from '@/pages/admin/AdminLogin';
@@ -96,6 +98,7 @@ function App() {
           <Route path="/provider/status" element={<PrivateRoute allow={['provider']}><ProviderStatus /></PrivateRoute>} />
           <Route path="/provider/dashboard" element={<PrivateRoute allow={['provider']}><ProviderDashboard /></PrivateRoute>} />
           <Route path="/provider/orders" element={<PrivateRoute allow={['provider']}><ProviderOrders /></PrivateRoute>} />
+          <Route path="/provider/marketplace" element={<PrivateRoute allow={['provider']}><ProviderMarketplace /></PrivateRoute>} />
           <Route path="/provider/earnings" element={<PrivateRoute allow={['provider']}><ProviderEarnings /></PrivateRoute>} />
           <Route path="/provider/reviews" element={<PrivateRoute allow={['provider']}><ProviderReviews /></PrivateRoute>} />
           <Route path="/provider/documents" element={<PrivateRoute allow={['provider']}><ProviderDocuments /></PrivateRoute>} />
@@ -106,6 +109,7 @@ function App() {
           <Route path="/admin" element={<AdminLogin />} />
           <Route path="/admin/dashboard" element={<PrivateRoute allow={['admin']}><AdminDashboard /></PrivateRoute>} />
           <Route path="/admin/providers/:id" element={<PrivateRoute allow={['admin']}><AdminProviderDetail /></PrivateRoute>} />
+          <Route path="/admin/marketplace" element={<PrivateRoute allow={['admin']}><AdminMarketplace /></PrivateRoute>} />
 
           {/* Compliance */}
           <Route path="/privacy" element={<Privacy />} />

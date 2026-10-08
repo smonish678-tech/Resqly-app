@@ -41,10 +41,21 @@ export default function ProviderDashboard() {
 
   const setAvail = async (status) => {
     try {
-      await api.patch('/providers/me/availability', { availability_status: status });
-      setProvider({ ...provider, availability_status: status });
-      toast.success(`Status set to ${status}`);
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+      let location = {};
+      if (status === 'available') {
+        if (!('geolocation' in navigator)) throw new Error('This device cannot provide location');
+        location = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+          (err) => reject(new Error(err.message || 'Location permission is required to go available')),
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+        ));
+      }
+      const response = await api.patch('/providers/me/availability', { availability_status: status, ...location });
+      setProvider({ ...provider, availability_status: response.data.availability_status, latitude: response.data.latitude, longitude: response.data.longitude });
+      toast.success(status === 'available' ? 'You are live for nearby requests' : 'Status set to ' + status);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message || 'Failed');
+    }
   };
 
   if (!provider) return <div className="resqly-shell"><div className="resqly-frame flex items-center justify-center min-h-screen text-slate-500">Loading...</div></div>;
@@ -113,6 +124,9 @@ export default function ProviderDashboard() {
         <div className="px-5 mt-5">
           <h3 className="font-semibold text-slate-900 mb-2">Quick Actions</h3>
           <div className="resqly-card divide-y">
+            {(provider.category === 'pharmacy' || provider.category === 'lab_test') && (
+              <Action testid="qa-marketplace" icon={<ClipboardList className="w-4 h-4 text-blue-600" />} label={provider.category === 'pharmacy' ? 'Pharmacy Requests' : 'Lab Requests'} onClick={() => navigate('/provider/marketplace')} />
+            )}
             <Action testid="qa-orders" icon={<ClipboardList className="w-4 h-4 text-blue-600" />} label="Orders" onClick={() => navigate('/provider/orders')} />
             <Action testid="qa-earnings" icon={<CircleDollarSign className="w-4 h-4 text-blue-600" />} label="Earnings" onClick={() => navigate('/provider/earnings')} />
             <Action testid="qa-reviews" icon={<Star className="w-4 h-4 text-amber-500" />} label="Reviews" onClick={() => navigate('/provider/reviews')} />

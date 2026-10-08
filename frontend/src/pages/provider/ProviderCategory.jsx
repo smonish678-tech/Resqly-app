@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Ambulance, Stethoscope, Pill, Home as HomeIcon, HeartPulse, Users, PawPrint, PillBottle, CheckCircle2 } from 'lucide-react';
+import { Ambulance, Stethoscope, Pill, FlaskConical, Home as HomeIcon, HeartPulse, Users, PawPrint, PillBottle, CheckCircle2 } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import MobileShell from '@/components/MobileShell';
 import { Button } from '@/components/ui/button';
 
 const ICONS = {
-  ambulance: Ambulance, doctor: Stethoscope, pharmacy: Pill, home_nursing: HomeIcon,
+  ambulance: Ambulance, doctor: Stethoscope, pharmacy: Pill, lab_test: FlaskConical, home_nursing: HomeIcon,
   home_care: HeartPulse, bystander: Users, pet_doctor: PawPrint, pet_pharmacy: PillBottle,
 };
 
