@@ -63,7 +63,7 @@ export default function LocationPicker() {
   const pickLocation = async (loc) => {
     // Save to user profile
     try {
-      await api.patch('/users/me', { location: loc.short || loc.label, city: loc.city || me?.city || 'Bangalore' });
+      await api.patch('/users/me', { location: loc.short || loc.label, city: loc.city || me?.city || 'Bangalore', latitude: loc.lat ?? null, longitude: loc.lng ?? null });
       await refresh();
       // Add to saved
       const next = [{ ...loc, ts: Date.now() }, ...saved.filter((s) => s.label !== loc.label)].slice(0, 6);

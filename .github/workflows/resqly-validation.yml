@@ -1,0 +1,30 @@
+name: Resqly Validation
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["backend/**","frontend/**",".github/workflows/resqly-validation.yml"]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Backend syntax
+        run: python -m py_compile backend/server.py
+      - name: Marketplace logic
+        run: python backend/marketplace_test.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - name: Frontend build
+        working-directory: frontend
+        run: |
+          yarn install --frozen-lockfile
+          CI=false yarn build

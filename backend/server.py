@@ -181,6 +181,8 @@ class UserProfileUpdate(BaseModel):
     email: Optional[str] = None
     city: Optional[str] = None
     location: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     blood_group: Optional[str] = None
     allergies: Optional[List[str]] = None
     medical_conditions: Optional[List[str]] = None
@@ -257,6 +259,33 @@ class WaitlistCreate(BaseModel):
     service_interest: Optional[str] = None
 
 
+class MarketplaceRequestCreate(BaseModel):
+    service_type: str
+    description: Optional[str] = None
+    requested_items: List[str] = []
+    attachment_url: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    address: Optional[str] = None
+
+class PharmacyQuotationCreate(BaseModel):
+    request_id: str
+    items: List[Dict[str, Any]] = []
+    coverage_confirmed: bool = False
+    notes: Optional[str] = None
+
+class LabQuotationCreate(BaseModel):
+    request_id: str
+    total_price: float
+    available_slots: Optional[str] = None
+    notes: Optional[str] = None
+
+class AcceptQuotationRequest(BaseModel):
+    quotation_id: str
+
+class MarketplaceCancelRequest(BaseModel):
+    reason: Optional[str] = None
+
 class ProviderCategoryUpdate(BaseModel):
     category: str
 
@@ -266,6 +295,8 @@ class ProviderProfileUpdate(BaseModel):
     email: Optional[str] = None
     city: Optional[str] = None
     service_area: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     profile_photo: Optional[str] = None
     description: Optional[str] = None
     languages: Optional[List[str]] = None
@@ -278,6 +309,8 @@ class ProviderProfileUpdate(BaseModel):
 
 class ProviderAvailability(BaseModel):
     availability_status: str  # available | busy | offline
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class DocumentUpload(BaseModel):
@@ -318,6 +351,7 @@ KYC_REQUIREMENTS = {
     "bystander": ["Aadhaar", "ID Proof", "Selfie Verification"],
     "pet_doctor": ["Veterinary License", "Degree Certificate", "Aadhaar"],
     "pet_pharmacy": ["Drug License", "GST Certificate", "Shop License", "Aadhaar"],
+    "lab_test": ["Lab Registration / License", "GST Certificate", "Business Address Proof", "Aadhaar"],
 }
 
 SPECIALIZATIONS = {
@@ -340,6 +374,7 @@ SPECIALIZATIONS = {
     "home_care": [],
     "bystander": [],
     "pet_pharmacy": [],
+    "lab_test": [],
 }
 
 
@@ -477,6 +512,8 @@ async def verify_otp(payload: OTPVerify):
                 "role": "consumer",
                 "city": "",
                 "location": "",
+                "latitude": None,
+                "longitude": None,
                 "emergency_contacts": [],
                 "blood_group": "",
                 "allergies": [],
@@ -522,6 +559,8 @@ async def verify_otp(payload: OTPVerify):
                 "email": "",
                 "city": "",
                 "service_area": "",
+                "latitude": None,
+                "longitude": None,
                 "approval_status": "incomplete",  # incomplete | pending | approved | rejected | resubmit
                 "availability_status": "offline",
                 "profile_photo": "",
@@ -556,6 +595,8 @@ async def provider_register(payload: EmailRegister):
         "password_hash": hash_password(payload.password),
         "city": "",
         "service_area": "",
+        "latitude": None,
+        "longitude": None,
         "approval_status": "incomplete",
         "availability_status": "offline",
         "profile_photo": "",
@@ -808,6 +849,41 @@ async def delete_lab_report(
     return {"success": True}
 
 
+# ---------------- Marketplace matching helpers ----------------
+def _norm_item(value: str) -> str:
+    return " ".join((value or "").strip().lower().split())
+
+def _coverage_count(requested: List[str], quoted: List[Dict[str, Any]]) -> int:
+    req = {_norm_item(v) for v in requested if _norm_item(v)}
+    got = {_norm_item(str(r.get("name") or r.get("medicine") or "")) for r in (quoted or []) if isinstance(r, dict) and int(r.get("quantity") or 1) > 0}
+    return len(req & got)
+
+def _all_items_covered(requested: List[str], quoted: List[Dict[str, Any]]) -> bool:
+    req = {_norm_item(v) for v in requested if _norm_item(v)}
+    return bool(req) and _coverage_count(requested, quoted) == len(req)
+
+def _distance_km(lat1, lon1, lat2, lon2) -> Optional[float]:
+    if None in (lat1, lon1, lat2, lon2):
+        return None
+    from math import radians, sin, cos, asin, sqrt
+    r = 6371.0
+    dlat = radians(lat2 - lat1); dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return round(2 * r * asin(sqrt(a)), 2)
+
+def _eta_minutes(distance_km: Optional[float], service_type: str) -> Optional[int]:
+    if distance_km is None:
+        return None
+    speed = 24 if service_type == "pharmacy" else 28
+    return max(5, int(round((distance_km / speed) * 60)))
+
+def _quote_rank(quote: Dict[str, Any]):
+    return (float(quote.get("total_price", 10**12)), int(quote.get("eta_minutes") or 10**9))
+
+def _provider_matches_request(provider: Dict[str, Any], request: Dict[str, Any]) -> bool:
+    return provider.get("approval_status") == "approved" and provider.get("availability_status") == "available" and provider.get("category") == request.get("service_type") and provider.get("latitude") is not None and provider.get("longitude") is not None
+
+
 # ---------------- Emergency Requests (design only - no real dispatch) ----------------
 @api.post("/emergency/request")
 async def emergency_request(
@@ -961,22 +1037,20 @@ async def set_availability(
 ):
     if payload.availability_status not in ("available", "busy", "offline"):
         raise HTTPException(status_code=400, detail="Invalid status")
-    # Only approved providers can go available/busy
     doc = await db.providers.find_one({"id": user["id"]}, {"_id": 0})
-    if (
-        doc.get("approval_status") != "approved"
-        and payload.availability_status != "offline"
-    ):
-        raise HTTPException(
-            status_code=400, detail="You must be approved before going available"
-        )
-    await db.providers.update_one(
-        {"id": user["id"]},
-        {"$set": {"availability_status": payload.availability_status}},
-    )
-    return {"success": True, "availability_status": payload.availability_status}
-
-
+    if payload.availability_status in ("available", "busy") and doc.get("approval_status") != "approved":
+        raise HTTPException(status_code=400, detail="You must be approved before going available")
+    updates = {"availability_status": payload.availability_status}
+    if payload.availability_status == "available":
+        lat = payload.latitude if payload.latitude is not None else doc.get("latitude")
+        lng = payload.longitude if payload.longitude is not None else doc.get("longitude")
+        if lat is None or lng is None:
+            raise HTTPException(status_code=400, detail="Location is required to go available")
+        updates.update({"latitude": lat, "longitude": lng, "last_location_at": now_iso()})
+    elif payload.latitude is not None and payload.longitude is not None:
+        updates.update({"latitude": payload.latitude, "longitude": payload.longitude, "last_location_at": now_iso()})
+    await db.providers.update_one({"id": user["id"]}, {"$set": updates})
+    return {"success": True, "availability_status": payload.availability_status, "latitude": updates.get("latitude"), "longitude": updates.get("longitude")}
 # ---------------- KYC Documents ----------------
 @api.post("/providers/me/documents")
 async def upload_document(
@@ -1110,6 +1184,128 @@ async def my_reviews(user: Dict[str, Any] = Depends(require_role("provider"))):
     return {"reviews": reviews, "average": avg, "total": len(reviews)}
 
 
+# ---------------- Marketplace: Pharmacy + Lab ----------------
+@api.post("/marketplace/requests")
+async def create_marketplace_request(payload: MarketplaceRequestCreate, user: Dict[str, Any] = Depends(require_role("consumer"))):
+    if payload.service_type not in ("pharmacy", "lab_test"):
+        raise HTTPException(status_code=400, detail="Unsupported marketplace service")
+    if payload.latitude is None or payload.longitude is None:
+        raise HTTPException(status_code=400, detail="Location is required so Resqly can calculate ETA")
+    items = list(dict.fromkeys([x.strip() for x in payload.requested_items if x and x.strip()]))
+    description = (payload.description or "").strip()
+    if payload.service_type == "pharmacy" and not items and not payload.attachment_url:
+        raise HTTPException(status_code=400, detail="Add medicines or upload a prescription")
+    if payload.service_type == "lab_test" and not items and not description and not payload.attachment_url:
+        raise HTTPException(status_code=400, detail="Describe the lab test or upload a prescription")
+    req = {"id": new_id(), "user_id": user["id"], "customer_name": user.get("name") or "Customer", "service_type": payload.service_type, "description": description, "requested_items": items, "attachment_url": payload.attachment_url or "", "latitude": payload.latitude, "longitude": payload.longitude, "address": payload.address or user.get("location") or user.get("city") or "", "status": "broadcasting", "created_at": now_iso(), "updated_at": now_iso(), "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()}
+    await db.marketplace_requests.insert_one(req.copy())
+    candidate_query = {"approval_status":"approved","availability_status":"available","category":payload.service_type,"latitude":{"$ne":None},"longitude":{"$ne":None}}
+    req["candidate_count"] = await db.providers.count_documents(candidate_query)
+    req["broadcasted_at"] = now_iso()
+    await db.marketplace_requests.update_one({"id":req["id"]},{"$set":{"candidate_count":req["candidate_count"],"broadcasted_at":req["broadcasted_at"]}})
+    return {"request": req}
+
+@api.get("/marketplace/requests/{request_id}")
+async def get_marketplace_request(request_id: str, user: Dict[str, Any] = Depends(current_user)):
+    req = await db.marketplace_requests.find_one({"id":request_id},{"_id":0})
+    if not req: raise HTTPException(status_code=404, detail="Request not found")
+    if user.get("role") == "consumer" and req.get("user_id") != user["id"]: raise HTTPException(status_code=403, detail="Forbidden")
+    if user.get("role") == "provider" and not _provider_matches_request(user, req): raise HTTPException(status_code=403, detail="Provider is not eligible for this request")
+    if req.get("expires_at") and req.get("status") not in ("order_placed","cancelled","expired"):
+        try:
+            if datetime.fromisoformat(req["expires_at"]) < datetime.now(timezone.utc):
+                req["status"]="expired"
+                await db.marketplace_requests.update_one({"id":req["id"]},{"$set":{"status":"expired","updated_at":now_iso()}})
+        except ValueError:
+            pass
+    query={"request_id":request_id,"eligible":True}
+    if user.get("role") == "provider": query["provider_id"]=user["id"]
+    quotes=await db.marketplace_quotations.find(query,{"_id":0}).sort([("total_price",1),("eta_minutes",1)]).to_list(100)
+    best=min(quotes,key=_quote_rank) if quotes else None
+    return {"request":req,"quotations":quotes,"best_quotation":best}
+
+@api.post("/marketplace/pharmacy/quotations")
+async def create_pharmacy_quotation(payload: PharmacyQuotationCreate, user: Dict[str, Any] = Depends(require_role("provider"))):
+    req=await db.marketplace_requests.find_one({"id":payload.request_id,"service_type":"pharmacy"},{"_id":0})
+    if not req: raise HTTPException(status_code=404,detail="Pharmacy request not found")
+    if not _provider_matches_request(user,req): raise HTTPException(status_code=403,detail="Provider is not eligible")
+    if req.get("status") in ("cancelled","expired","order_placed"): raise HTTPException(status_code=409,detail="This request is no longer accepting quotations")
+    items=[]; total=0.0
+    for row in payload.items or []:
+        name=_norm_item(str(row.get("name") or row.get("medicine") or "")); qty=int(row.get("quantity") or 1); unit=float(row.get("unit_price") or row.get("price") or 0)
+        if name and qty > 0 and unit >= 0:
+            line=round(qty*unit,2); items.append({"name":name,"quantity":qty,"unit_price":round(unit,2),"line_total":line}); total+=line
+    eligible=_all_items_covered(req.get("requested_items",[]),items) if req.get("requested_items") else bool(payload.coverage_confirmed and items)
+    if not eligible: raise HTTPException(status_code=400,detail="This quotation must cover the full prescription/request to be eligible")
+    distance=_distance_km(req["latitude"],req["longitude"],user["latitude"],user["longitude"])
+    quote={"id":new_id(),"request_id":req["id"],"provider_id":user["id"],"provider_name":user.get("name") or "Verified pharmacy","items":items,"covered_count":_coverage_count(req.get("requested_items",[]),items) if req.get("requested_items") else None,"requested_count":len({_norm_item(x) for x in req.get("requested_items",[]) if _norm_item(x)}) or None,"coverage_confirmed":bool(payload.coverage_confirmed),"total_price":round(total,2),"distance_km":distance,"eta_minutes":_eta_minutes(distance,"pharmacy"),"notes":payload.notes or "","eligible":True,"status":"submitted","created_at":now_iso(),"expires_at":(datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat()}
+    await db.marketplace_quotations.update_one({"request_id":req["id"],"provider_id":user["id"]},{"$set":quote},upsert=True)
+    await db.marketplace_requests.update_one({"id":req["id"]},{"$set":{"status":"quotations_received","updated_at":now_iso()}})
+    return {"quotation":quote}
+
+@api.post("/marketplace/lab/quotations")
+async def create_lab_quotation(payload: LabQuotationCreate, user: Dict[str, Any] = Depends(require_role("provider"))):
+    req=await db.marketplace_requests.find_one({"id":payload.request_id,"service_type":"lab_test"},{"_id":0})
+    if not req: raise HTTPException(status_code=404,detail="Lab request not found")
+    if not _provider_matches_request(user,req): raise HTTPException(status_code=403,detail="Provider is not eligible")
+    if req.get("status") in ("cancelled","expired","order_placed"): raise HTTPException(status_code=409,detail="This request is no longer accepting quotations")
+    if float(payload.total_price) < 0: raise HTTPException(status_code=400,detail="Quotation price cannot be negative")
+    distance=_distance_km(req["latitude"],req["longitude"],user["latitude"],user["longitude"])
+    quote={"id":new_id(),"request_id":req["id"],"provider_id":user["id"],"provider_name":user.get("name") or "Verified lab","total_price":round(float(payload.total_price),2),"distance_km":distance,"eta_minutes":_eta_minutes(distance,"lab_test"),"available_slots":payload.available_slots or "","notes":payload.notes or "","eligible":True,"status":"submitted","created_at":now_iso(),"expires_at":(datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat()}
+    await db.marketplace_quotations.update_one({"request_id":req["id"],"provider_id":user["id"]},{"$set":quote},upsert=True)
+    await db.marketplace_requests.update_one({"id":req["id"]},{"$set":{"status":"quotations_received","updated_at":now_iso()}})
+    return {"quotation":quote}
+
+@api.post("/marketplace/quotations/accept")
+async def accept_marketplace_quotation(payload: AcceptQuotationRequest,user: Dict[str,Any]=Depends(require_role("consumer"))):
+    quote=await db.marketplace_quotations.find_one({"id":payload.quotation_id,"eligible":True},{"_id":0})
+    if not quote: raise HTTPException(status_code=404,detail="Quotation not found")
+    try:
+        if quote.get("expires_at") and datetime.fromisoformat(quote["expires_at"]) < datetime.now(timezone.utc):
+            raise HTTPException(status_code=409,detail="This quotation has expired. Please request a fresh quote.")
+    except ValueError: pass
+    req=await db.marketplace_requests.find_one({"id":quote["request_id"],"user_id":user["id"]},{"_id":0})
+    if not req: raise HTTPException(status_code=403,detail="Forbidden")
+    if req.get("status") in ("cancelled","expired","order_placed"): raise HTTPException(status_code=409,detail="This request is no longer accepting orders")
+    quotes=await db.marketplace_quotations.find({"request_id":req["id"],"eligible":True},{"_id":0}).to_list(100)
+    active=[]
+    for q in quotes:
+        try:
+            if not q.get("expires_at") or datetime.fromisoformat(q["expires_at"]) >= datetime.now(timezone.utc): active.append(q)
+        except ValueError: active.append(q)
+    if not active: raise HTTPException(status_code=409,detail="No active quotations")
+    winner=min(active,key=_quote_rank)
+    if winner["id"] != quote["id"]: raise HTTPException(status_code=409,detail="This quotation is no longer the best available offer")
+    lock=await db.marketplace_requests.update_one({"id":req["id"],"status":{"$nin":["order_placed","cancelled","expired"]}},{"$set":{"status":"order_placed","accepted_quotation_id":quote["id"],"updated_at":now_iso()}})
+    if lock.modified_count != 1: raise HTTPException(status_code=409,detail="This request has already been completed")
+    await db.marketplace_quotations.update_many({"request_id":req["id"]},{"$set":{"status":"not_selected"}})
+    await db.marketplace_quotations.update_one({"id":quote["id"]},{"$set":{"status":"accepted","accepted_at":now_iso()}})
+    order={"id":new_id(),"request_id":req["id"],"provider_id":quote["provider_id"],"customer_id":user["id"],"customer_name":user.get("name") or "Customer","service_type":req["service_type"],"amount":quote["total_price"],"net_earnings":quote["total_price"],"status":"accepted","created_at":now_iso(),"quotation_id":quote["id"],"eta_minutes":quote.get("eta_minutes")}
+    await db.orders.insert_one(order.copy()); order.pop("_id",None)
+    return {"order":order,"quotation":quote}
+
+@api.post("/marketplace/requests/{request_id}/cancel")
+async def cancel_marketplace_request(request_id:str,payload:MarketplaceCancelRequest,user:Dict[str,Any]=Depends(require_role("consumer"))):
+    result=await db.marketplace_requests.update_one({"id":request_id,"user_id":user["id"],"status":{"$in":["broadcasting","quotations_received"]}},{"$set":{"status":"cancelled","cancel_reason":payload.reason or "Cancelled by customer","updated_at":now_iso()}})
+    if result.modified_count != 1: raise HTTPException(status_code=409,detail="Request can no longer be cancelled")
+    return {"success":True}
+
+@api.get("/providers/me/marketplace/requests")
+async def provider_marketplace_requests(user:Dict[str,Any]=Depends(require_role("provider"))):
+    if user.get("approval_status")!="approved" or user.get("availability_status")!="available" or user.get("latitude") is None or user.get("longitude") is None:
+        return {"requests":[]}
+    cursor=db.marketplace_requests.find({"service_type":user.get("category"),"status":{"$in":["broadcasting","quotations_received"]}},{"_id":0}).sort("created_at",-1)
+    return {"requests":await cursor.to_list(100)}
+
+@api.get("/admin/marketplace")
+async def admin_marketplace(admin:Dict[str,Any]=Depends(require_role("admin"))):
+    requests=await db.marketplace_requests.find({},{"_id":0}).sort("created_at",-1).to_list(100)
+    quotations=await db.marketplace_quotations.find({},{"_id":0}).sort("created_at",-1).to_list(300)
+    orders=await db.orders.find({"service_type":{"$in":["pharmacy","lab_test"]}},{"_id":0}).sort("created_at",-1).to_list(200)
+    providers=await db.providers.find({"category":{"$in":["pharmacy","lab_test"]}},{"_id":0,"password_hash":0}).sort("name",1).to_list(200)
+    return {"requests":requests,"quotations":quotations,"orders":orders,"providers":providers}
+
+
 # ---------------- Notifications ----------------
 @api.get("/notifications")
 async def list_notifications(user: Dict[str, Any] = Depends(current_user)):
@@ -1230,44 +1426,46 @@ def _upload_to_supabase(bucket: str, path: str, file_bytes: bytes, content_type:
 async def upload_base64(payload: UploadBase64Request, user: Dict[str, Any] = Depends(current_user)):
     if payload.bucket not in ALLOWED_BUCKETS:
         raise HTTPException(status_code=400, detail="Invalid bucket")
-    # Strip data URL prefix if present
     data = payload.data_base64
     if "," in data and data.strip().startswith("data:"):
         data = data.split(",", 1)[1]
     try:
-        file_bytes = b64.b64decode(data)
+        file_bytes = b64.b64decode(data, validate=True)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 data")
-    if len(file_bytes) > 6 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 6MB)")
-    ext = ""
-    if "." in payload.filename:
-        ext = payload.filename.rsplit(".", 1)[1].lower()
+    if len(file_bytes) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 8MB)")
+    return await _store_uploaded_bytes(payload.bucket, payload.filename, payload.content_type or "application/octet-stream", file_bytes, user["id"])
+
+@api.post("/uploads/file")
+async def upload_file(request: Request, bucket: str, filename: str, user: Dict[str, Any] = Depends(current_user)):
+    if bucket not in ALLOWED_BUCKETS:
+        raise HTTPException(status_code=400, detail="Invalid bucket")
+    if not filename or len(filename) > 180:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    file_bytes = await request.body()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(file_bytes) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 8MB)")
+    return await _store_uploaded_bytes(bucket, filename, request.headers.get("content-type") or "application/octet-stream", file_bytes, user["id"])
+
+async def _store_uploaded_bytes(bucket: str, filename: str, content_type: str, file_bytes: bytes, user_id: str):
+    ext = filename.rsplit(".", 1)[1].lower() if "." in filename else ""
     safe_id = new_id()
-    path = f"{user['id']}/{safe_id}" + (f".{ext}" if ext else "")
-    content_type = payload.content_type or "application/octet-stream"
-
-    public_url = _upload_to_supabase(payload.bucket, path, file_bytes, content_type)
+    path = f"{user_id}/{safe_id}" + (f".{ext}" if ext else "")
+    import asyncio
+    public_url = None
+    for attempt in range(2):
+        public_url = await asyncio.to_thread(_upload_to_supabase, bucket, path, file_bytes, content_type)
+        if public_url:
+            break
+        if attempt == 0:
+            await asyncio.sleep(0.6)
     if not public_url:
-        # Fallback: return the data URL so the UI keeps working even if Supabase is down
-        public_url = f"data:{content_type};base64,{data}"
-
-    # Track upload metadata
-    await db.uploads.insert_one(
-        {
-            "id": safe_id,
-            "user_id": user["id"],
-            "bucket": payload.bucket,
-            "path": path,
-            "url": public_url,
-            "content_type": content_type,
-            "size_bytes": len(file_bytes),
-            "filename": payload.filename,
-            "created_at": now_iso(),
-        }
-    )
-    return {"success": True, "url": public_url, "bucket": payload.bucket, "path": path}
-
+        raise HTTPException(status_code=503, detail="File storage is temporarily unavailable. Please try again.")
+    await db.uploads.insert_one({"id": safe_id, "user_id": user_id, "bucket": bucket, "path": path, "url": public_url, "content_type": content_type, "size_bytes": len(file_bytes), "filename": filename, "created_at": now_iso()})
+    return {"success": True, "url": public_url, "bucket": bucket, "path": path}
 
 @api.get("/uploads/me")
 async def list_my_uploads(user: Dict[str, Any] = Depends(current_user)):
@@ -1362,6 +1560,8 @@ async def admin_stats(admin: Dict[str, Any] = Depends(require_role("admin"))):
     incomplete = await db.providers.count_documents({"approval_status": "incomplete"})
     total_users = await db.users.count_documents({})
     total_waitlist = await db.waitlist.count_documents({})
+    marketplace_open = await db.marketplace_requests.count_documents({"status":{"$in":["broadcasting","quotations_received"]}})
+    marketplace_orders = await db.orders.count_documents({"service_type":{"$in":["pharmacy","lab_test"]}})
     by_category_cursor = db.providers.aggregate(
         [
             {"$match": {"category": {"$ne": ""}}},
@@ -1382,6 +1582,7 @@ async def admin_stats(admin: Dict[str, Any] = Depends(require_role("admin"))):
         },
         "consumers": {"total": total_users},
         "waitlist": {"total": total_waitlist},
+        "marketplace": {"open_requests": marketplace_open, "orders": marketplace_orders},
     }
 
 
@@ -1395,6 +1596,9 @@ async def on_startup():
     await db.provider_documents.create_index(
         [("provider_id", 1), ("document_type", 1)]
     )
+    await db.marketplace_requests.create_index([("service_type", 1), ("status", 1), ("created_at", -1)])
+    await db.marketplace_quotations.create_index([("request_id", 1), ("provider_id", 1)], unique=True)
+    await db.orders.create_index([("customer_id", 1), ("created_at", -1)])
     # Ensure Supabase Storage buckets exist
     if supabase_client:
         for bucket in ALLOWED_BUCKETS:
