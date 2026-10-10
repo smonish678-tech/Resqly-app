@@ -1071,9 +1071,12 @@ async def set_availability(
     if payload.availability_status == "available":
         lat = payload.latitude if payload.latitude is not None else doc.get("latitude")
         lng = payload.longitude if payload.longitude is not None else doc.get("longitude")
-        if lat is None or lng is None:
+        # Online-only doctors can be available worldwide without sharing location.
+        # Home-visit requests are filtered out for doctors without coordinates.
+        if doc.get("category") != "doctor" and (lat is None or lng is None):
             raise HTTPException(status_code=400, detail="Location is required to go available")
-        updates.update({"latitude": lat, "longitude": lng, "last_location_at": now_iso()})
+        if lat is not None and lng is not None:
+            updates.update({"latitude": lat, "longitude": lng, "last_location_at": now_iso()})
     elif payload.latitude is not None and payload.longitude is not None:
         updates.update({"latitude": payload.latitude, "longitude": payload.longitude, "last_location_at": now_iso()})
     await db.providers.update_one({"id": user["id"]}, {"$set": updates})
