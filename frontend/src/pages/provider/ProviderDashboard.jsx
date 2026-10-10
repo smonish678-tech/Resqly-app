@@ -43,12 +43,20 @@ export default function ProviderDashboard() {
     try {
       let location = {};
       if (status === 'available') {
-        if (!('geolocation' in navigator)) throw new Error('This device cannot provide location');
-        location = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
-          (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-          (err) => reject(new Error(err.message || 'Location permission is required to go available')),
-          { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
-        ));
+        if (!('geolocation' in navigator)) {
+          if (provider.category !== 'doctor') throw new Error('This device cannot provide location');
+        } else {
+          try {
+            location = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
+              (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+              (err) => reject(new Error(err.message || 'Location permission is required to go available')),
+              { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+            ));
+          } catch (locationError) {
+            if (provider.category !== 'doctor') throw locationError;
+            toast.message('Location unavailable. You can receive online consultations only until you enable location.');
+          }
+        }
       }
       const response = await api.patch('/providers/me/availability', { availability_status: status, ...location });
       setProvider({ ...provider, availability_status: response.data.availability_status, latitude: response.data.latitude, longitude: response.data.longitude });
