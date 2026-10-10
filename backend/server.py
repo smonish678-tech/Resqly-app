@@ -1266,6 +1266,42 @@ async def _expire_unjoined_doctor_consultations():
             "type": "doctor_consultation", "related_id": item["id"], "read": False, "created_at": now,
         })
 
+    # Paid broadcasts that receive no acceptance also expire and are refunded.
+    pending_cursor = db.doctor_consultations.find(
+        {"status": "broadcasting", "expires_at": {"$lte": now}}, {"_id": 0}
+    )
+    pending = await pending_cursor.to_list(100)
+    for item in pending:
+        lock = await db.doctor_consultations.update_one(
+            {"id": item["id"], "status": "broadcasting", "expires_at": {"$lte": now}},
+            {"$set": {"status": "refund_processing", "updated_at": now}},
+        )
+        if lock.modified_count != 1:
+            continue
+        refund_status = "refund_pending"
+        try:
+            key_id = os.environ.get("RAZORPAY_KEY_ID", "")
+            key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+            payment_id = item.get("razorpay_payment_id")
+            if key_id and key_secret and payment_id:
+                import razorpay
+                client = razorpay.Client(auth=(key_id, key_secret))
+                client.payment.refund(payment_id, data={"amount": int(item.get("amount") or 0) * 100})
+                refund_status = "refunded"
+        except Exception:
+            logging.exception("Doctor no-acceptance refund failed")
+        final_status = "refunded_no_doctor" if refund_status == "refunded" else "refund_pending"
+        await db.doctor_consultations.update_one(
+            {"id": item["id"], "status": "refund_processing"},
+            {"$set": {"status": final_status, "refund_status": refund_status, "updated_at": now}},
+        )
+        await db.notifications.insert_one({
+            "id": new_id(), "user_id": item["user_id"],
+            "title": "No doctor accepted the request",
+            "message": "The request expired before a doctor accepted it. Refund status: " + refund_status.replace("_", " ") + ".",
+            "type": "doctor_consultation", "related_id": item["id"], "read": False, "created_at": now,
+        })
+
 
 _doctor_expiry_task = None
 
