@@ -1374,6 +1374,35 @@ async def verify_doctor_payment(
             and _distance_km(consultation["latitude"], consultation["longitude"], p.get("latitude"), p.get("longitude")) <= 25
         ]
     now = now_iso()
+    if not candidates:
+        refund_status = "refund_pending"
+        try:
+            import razorpay
+            razorpay_client = razorpay.Client(auth=(os.environ.get("RAZORPAY_KEY_ID", ""), key_secret))
+            razorpay_client.payment.refund(payload.razorpay_payment_id, data={"amount": int(consultation["amount"]) * 100})
+            refund_status = "refunded"
+        except Exception:
+            logging.exception("Automatic refund failed because no eligible doctor remained")
+        await db.doctor_consultations.update_one(
+            {"id": consultation["id"], "user_id": user["id"], "status": "payment_pending"},
+            {"$set": {
+                "payment_status": refund_status,
+                "razorpay_payment_id": payload.razorpay_payment_id,
+                "paid_at": now,
+                "status": "refunded_no_doctor" if refund_status == "refunded" else "refund_pending",
+                "refund_status": refund_status,
+                "candidate_count": 0,
+                "updated_at": now,
+            }},
+        )
+        await db.notifications.insert_one({
+            "id": new_id(), "user_id": user["id"],
+            "title": "No doctor available",
+            "message": "No matching doctor was available after payment verification. Refund status: " + refund_status.replace("_", " ") + ".",
+            "type": "doctor_consultation", "related_id": consultation["id"], "read": False, "created_at": now,
+        })
+        fresh = await db.doctor_consultations.find_one({"id": consultation["id"], "user_id": user["id"]}, {"_id": 0})
+        return {"consultation": fresh}
     update = {
         "payment_status": "paid",
         "razorpay_payment_id": payload.razorpay_payment_id,
