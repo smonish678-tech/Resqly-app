@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Video, VideoOff, Mic, PhoneOff, FileText, ShieldCheck, AlertTriangle, Plus, Trash2, House } from 'lucide-react';
+import { Video, FileText, ShieldCheck, AlertTriangle, Plus, Trash2, House } from 'lucide-react';
 import { toast } from 'sonner';
-import api from '@/lib/api';
+import api, { API_BASE } from '@/lib/api';
+import { startNativeAgoraCall, isNativeAgoraCallSupported } from '@/lib/agoraCall';
 import MobileShell from '@/components/MobileShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,20 +19,29 @@ export default function DoctorCall({ role }) {
   const [medications, setMedications] = useState([{ name: '', dosage: '', frequency: '', duration: '' }]);
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [startingCall, setStartingCall] = useState(false);
+  const [callError, setCallError] = useState('');
+
+  const loadConsultation = useCallback(async () => {
+    try {
+      const { data } = await api.get('/doctor-consultations/' + consultationId);
+      setConsultation(data.consultation);
+      setCallError('');
+    } catch (e) {
+      setCallError(e.response?.data?.detail || 'Could not load consultation');
+    }
+  }, [consultationId]);
 
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      try {
-        const { data } = await api.get('/doctor-consultations/' + consultationId);
-        if (active) setConsultation(data.consultation);
-      } catch (e) {
-        if (active) toast.error(e.response?.data?.detail || 'Could not load consultation');
-      }
+    loadConsultation();
+    const poll = setInterval(loadConsultation, 2500);
+    const onVisible = () => { if (document.visibilityState === 'visible') loadConsultation(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-    load();
-    return () => { active = false; };
-  }, [consultationId]);
+  }, [loadConsultation]);
 
   const savePrescription = async () => {
     if (!medications.some((m) => m.name.trim()) && !notes.trim()) return toast.error('Add a medicine or write care instructions before saving.');
@@ -49,6 +59,37 @@ export default function DoctorCall({ role }) {
       setConsultation(data.consultation);
       toast.success('Home visit started. You can now record the prescription.');
     } catch (e) { toast.error(e.response?.data?.detail || 'Could not start this home visit'); }
+  };
+
+  const startVideoCall = async () => {
+    if (!isNativeAgoraCallSupported()) {
+      toast.error('Secure video calling is currently available in the Resqly Android app only.');
+      return;
+    }
+    setStartingCall(true);
+    try {
+      const { data } = await api.get('/doctor-consultations/' + consultationId + '/rtc-token');
+      await startNativeAgoraCall({
+        appId: data.app_id,
+        token: data.token,
+        channel: data.channel,
+        uid: data.uid,
+        consultationId,
+        apiBase: API_BASE,
+        authToken: localStorage.getItem('resqly_token') || '',
+        participantRole: data.participant_role,
+        joinDeadline: data.join_deadline || '',
+        consultationStatus: data.consultation_status || consultation.status,
+      });
+      toast.success('Secure video room opened.');
+      await loadConsultation();
+    } catch (e) {
+      const message = e.response?.data?.detail || e.message || 'Could not start the video call';
+      toast.error(message);
+      setCallError(message);
+    } finally {
+      setStartingCall(false);
+    }
   };
 
   const complete = async () => {
@@ -72,18 +113,18 @@ export default function DoctorCall({ role }) {
           <div className="mt-3 rounded-xl bg-slate-50 p-3"><div className="text-xs font-semibold text-slate-500">PATIENT CONCERN</div><p className="text-sm text-slate-800 mt-1 whitespace-pre-wrap">{consultation.problem}</p></div>
         </div>
         {consultation.consultation_type === 'online' ? (
-        <div className="rounded-3xl bg-slate-950 p-4 text-white">
-          <div className="aspect-[4/3] rounded-2xl border border-white/15 bg-slate-900 flex flex-col items-center justify-center text-center p-5">
-            <VideoOff className="w-10 h-10 text-slate-400"/>
-            <h2 className="font-semibold mt-3">Video calling is not connected yet</h2>
-            <p className="text-xs text-slate-400 mt-2 max-w-xs">This screen will not pretend a call is live. The Agora native SDK, secure call-token service, and device-to-device verification still need to be connected before patient care can happen here.</p>
+          <div className="rounded-3xl bg-slate-950 p-5 text-white">
+            <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center"><Video className="w-6 h-6 text-white"/></div>
+            <h2 className="text-lg font-bold mt-3">{consultation.status === 'in_call' ? 'Consultation room ready' : 'Join the video consultation'}</h2>
+            <p className="text-sm text-slate-300 mt-2">{consultation.status === 'in_call' ? 'Both participants have joined. You can rejoin if you left the call.' : 'Tap below to open the native secure call room. Allow camera and microphone access when Android asks.'}</p>
+            {consultation.status === 'accepted' && consultation.join_deadline && <p className="text-xs text-amber-200 mt-3">Please join before the 5-minute window ends.</p>}
+            {consultation.status === 'in_call' && <div className="mt-3 rounded-xl bg-emerald-900/70 p-3 text-xs text-emerald-100">Both patient and doctor have connected to the same secure Agora room.</div>}
+            {!isNativeAgoraCallSupported() && <div className="mt-3 rounded-xl bg-amber-900/60 p-3 text-xs text-amber-100">Video calls currently require the Resqly Android app. Open this consultation in the app to join.</div>}
+            <Button onClick={startVideoCall} disabled={startingCall || !isNativeAgoraCallSupported() || !['accepted', 'in_call'].includes(consultation.status)} className="w-full mt-4 bg-blue-500 hover:bg-blue-600">
+              {startingCall ? 'Preparing secure room…' : consultation.status === 'in_call' ? 'Rejoin video call' : 'Get into video call'}
+            </Button>
+            {callError && <p className="text-xs text-rose-200 mt-3">{callError}</p>}
           </div>
-          <div className="grid grid-cols-3 gap-3 mt-4">
-            <div className="rounded-xl bg-white/10 p-3 text-center"><Mic className="w-5 h-5 mx-auto"/><span className="block text-[10px] mt-1">Microphone</span></div>
-            <div className="rounded-xl bg-white/10 p-3 text-center"><Video className="w-5 h-5 mx-auto"/><span className="block text-[10px] mt-1">Camera</span></div>
-            <button onClick={() => navigate(role === 'provider' ? '/provider/doctor-requests' : '/consumer/prescriptions')} className="rounded-xl bg-rose-600 p-3 text-center"><PhoneOff className="w-5 h-5 mx-auto"/><span className="block text-[10px] mt-1">Leave</span></button>
-          </div>
-        </div>
         ) : (
           <div className="resqly-card p-5">
             <div className="flex items-center gap-2"><House className="w-5 h-5 text-blue-700"/><h2 className="font-bold text-slate-900">Doctor home visit</h2></div>
@@ -105,7 +146,7 @@ export default function DoctorCall({ role }) {
             <Button onClick={savePrescription} disabled={saving} className="w-full bg-blue-700 hover:bg-blue-800">{saving ? 'Saving…' : 'Save prescription to patient RX'}</Button>
           </div>
         )}
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex gap-2"><AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5"/><p className="text-xs text-amber-900">Do not use this screen for clinical care until video calling is enabled and tested. Prescription saving is available only to the assigned, verified doctor.</p></div>
+        {consultation.consultation_type === 'online' && consultation.status !== 'in_call' && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex gap-2"><AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5"/><p className="text-xs text-amber-900">Prescriptions stay locked until both participants have joined the live call. Never rely on an unconnected room for medical care.</p></div>}
         {role === 'provider' && <Button variant="outline" onClick={complete} disabled={completing || (consultation.consultation_type === 'home_visit' ? consultation.status !== 'in_progress' : consultation.status !== 'in_call') || role !== 'provider'} className="w-full">{completing ? 'Finishing…' : consultation.consultation_type === 'home_visit' ? 'Mark home visit complete' : consultation.status === 'in_call' ? 'Mark consultation complete' : 'Complete after the video call'}</Button>}
       </div>
     </MobileShell>
