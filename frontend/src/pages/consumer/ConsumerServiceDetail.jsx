@@ -10,10 +10,12 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
 import { CITIES, CONSUMER_SERVICES, SERVICE_LABELS } from '@/lib/constants';
 import ConsumerMarketplace from './ConsumerMarketplace';
+import DoctorConsultation from './DoctorConsultation';
 
 export default function ConsumerServiceDetail() {
   const { serviceKey } = useParams();
   if (serviceKey === 'pharmacy' || serviceKey === 'lab_test') return <ConsumerMarketplace serviceType={serviceKey} />;
+  if (serviceKey === 'doctor') return <DoctorConsultation />;
 
   const { me } = useAuth();
   const [joined, setJoined] = useState(false);
