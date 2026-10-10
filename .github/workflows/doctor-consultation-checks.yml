@@ -47,3 +47,36 @@ jobs:
         run: yarn install --frozen-lockfile
       - name: Build production bundle
         run: CI=false yarn build
+
+  android-debug-build:
+    name: Android debug APK build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      REACT_APP_BACKEND_URL: https://example.invalid
+      GENERATE_SOURCEMAP: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build web bundle
+        run: CI=false yarn build
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+      - name: Build Android debug APK
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
