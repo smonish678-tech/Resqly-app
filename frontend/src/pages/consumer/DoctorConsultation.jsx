@@ -44,6 +44,8 @@ export default function DoctorConsultation() {
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const canCheckout = mode === 'online' ? Boolean(config?.online_available) : Boolean(config?.home_visit_available);
+  const unavailableMessage = mode === 'online' ? config?.online_message : config?.message;
 
   useEffect(() => {
     api.get('/doctor-consultations/config').then(({ data }) => setConfig(data)).catch(() => setConfig({ available: false, message: 'Doctor consultations are being set up. Please try again shortly.' }));
@@ -87,7 +89,7 @@ export default function DoctorConsultation() {
   const submit = async () => {
     if (problem.trim().length < 8) return toast.error('Tell the doctor a little more about the problem (at least 8 characters).');
     if (!languages.length) return toast.error('Choose at least one language you are comfortable speaking.');
-    if (!config?.available) return toast.error(config?.message || 'Consultations are not available yet.');
+    if (!canCheckout) return toast.error(unavailableMessage || 'This consultation option is not available yet.');
     setLoading(true);
     try {
       let location = null;
@@ -189,9 +191,9 @@ export default function DoctorConsultation() {
             {LANGUAGE_OPTIONS.map((language) => <label key={language} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${languages.includes(language) ? 'border-blue-700 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-700'}`}><input type="checkbox" checked={languages.includes(language)} onChange={() => toggleLanguage(language)} />{language}</label>)}
           </div>
           {mode === 'online' ? <div className="mt-4 rounded-xl bg-slate-50 p-3 flex gap-2"><Globe2 className="w-4 h-4 text-blue-700 flex-shrink-0 mt-0.5" /><p className="text-xs text-slate-600">Online matching can include eligible doctors anywhere; distance does not limit the search.</p></div> : <div className="mt-4 rounded-xl bg-slate-50 p-3"><div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><MapPin className="w-4 h-4 text-blue-700" />Home visit location</div><p className="text-xs text-slate-500 mt-1">{address || 'We will ask for your current location before checkout.'}</p><button onClick={async () => { try { const pos = await getLocation(); setAddress(`${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)}`); } catch (e) { toast.error(e.message || 'Location permission needed'); } }} disabled={locationLoading} className="text-xs text-blue-700 font-semibold mt-2">{locationLoading ? 'Getting location…' : 'Use my current location'}</button></div>}
-          {!config?.available && <div className="mt-4 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" /><p className="text-xs text-amber-900">{config?.message || 'Checking payment availability…'}</p></div>}
-          {config?.available && <div className="mt-4 rounded-xl border border-slate-200 p-3"><div className="flex items-center justify-between"><span className="text-sm text-slate-600">{mode === 'online' ? 'Online consultation' : 'Doctor home visit'}</span><span className="font-bold text-slate-900">₹{mode === 'online' ? config.online_price : config.home_visit_price}</span></div><p className="text-[11px] text-slate-500 mt-1">Final price is shown before payment. Your request is broadcast only after payment verification.</p></div>}
-          <Button onClick={submit} disabled={loading || !config?.available} className="w-full mt-4 bg-blue-700 hover:bg-blue-800">{loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Preparing secure checkout…</> : 'Continue to secure payment'}</Button>
+          {!canCheckout && <div className="mt-4 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" /><p className="text-xs text-amber-900">{unavailableMessage || 'Checking service availability…'}</p></div>}
+          {canCheckout && <div className="mt-4 rounded-xl border border-slate-200 p-3"><div className="flex items-center justify-between"><span className="text-sm text-slate-600">{mode === 'online' ? 'Online consultation' : 'Doctor home visit'}</span><span className="font-bold text-slate-900">₹{mode === 'online' ? config.online_price : config.home_visit_price}</span></div><p className="text-[11px] text-slate-500 mt-1">Final price is shown before payment. Your request is broadcast only after payment verification.</p></div>}
+          <Button onClick={submit} disabled={loading || !canCheckout} className="w-full mt-4 bg-blue-700 hover:bg-blue-800">{loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Preparing secure checkout…</> : canCheckout ? 'Continue to secure payment' : 'Not available yet'}</Button>
           <p className="text-[10px] text-slate-400 text-center mt-3">This service does not replace emergency care. Doctors must be verified before they receive requests.</p>
         </div>
       </div>
