@@ -5,7 +5,8 @@
 - Replaced the doctor waitlist entry with a two-mode consultation flow: **Online consultation** and **Doctor home visit**.
 - Patients describe the concern and select one or more languages. Online requests are matched globally by language; home visits additionally require patient location and a 25 km radius.
 - Doctor KYC collects languages; the backend rejects doctor KYC submission without at least one language.
-- Payment checkout is server-created with Razorpay. A request is not broadcast until the payment signature, order ID, captured state and amount are verified server-side.
+- Home-visit checkout is server-created with Razorpay. A request is not broadcast until the payment signature, order ID, captured state and amount are verified server-side.
+- Online video checkout is intentionally disabled until the native Agora bridge and secure RTC token service are connected and tested; the backend rejects direct API attempts too.
 - Eligible doctors must be approved, online/available, and language-matched. A home visit also requires a recent location and distance within 25 km.
 - Acceptance reserves the doctor as busy before assigning the request, preventing the same doctor from accepting two simultaneous requests. An active consultation prevents the doctor switching back to Available.
 - Accepted requests get a five-minute join deadline in the record and patient UI. Prescriptions can be written by the assigned verified doctor and are stored in the existing consumer prescriptions collection; medicine and follow-up details render in the RX screen.
@@ -13,14 +14,14 @@
 
 ## Required server configuration
 
-Set these secrets/configuration values in the backend hosting environment, not in frontend code or Git:
+For home-visit checkout, set these secrets/configuration values in the backend hosting environment, not in frontend code or Git:
 
 - `RAZORPAY_KEY_ID`
 - `RAZORPAY_KEY_SECRET`
-- `DOCTOR_ONLINE_PRICE_INR` (positive integer, INR)
+- `DOCTOR_ONLINE_PRICE_INR` (positive integer, INR; configured for future use, but online checkout remains disabled until Agora RTC is ready)
 - `DOCTOR_HOME_VISIT_PRICE_INR` (positive integer, INR)
 
-If any are missing or a price is zero, the API fails closed and checkout remains unavailable. This prevents fake or unpaid broadcasts. Do not use production payment credentials for local testing.
+If payment credentials or the home-visit price are missing, home-visit checkout fails closed. Online checkout stays disabled even if its price is set, until Agora is integrated. This prevents charging patients for a call that cannot actually connect. Do not use production payment credentials for local testing.
 
 ## Current customer/provider workflow
 
