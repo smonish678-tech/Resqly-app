@@ -1114,6 +1114,16 @@ async def submit_for_approval(user: Dict[str, Any] = Depends(require_role("provi
     category = doc.get("category", "")
     if not category:
         raise HTTPException(status_code=400, detail="Select a category first")
+    # Enforce doctor language requirements on the server; UI validation alone is bypassable.
+    if category == "doctor":
+        languages = doc.get("languages") or []
+        if not isinstance(languages, list) or not any(
+            isinstance(language, str) and language.strip() for language in languages
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Select at least one language you can consult in",
+            )
     required = set(KYC_REQUIREMENTS.get(category, []))
     cursor = db.provider_documents.find({"provider_id": user["id"]}, {"_id": 0})
     uploaded_docs = await cursor.to_list(100)
