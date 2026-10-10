@@ -225,3 +225,8 @@ code {
   background: #fff;
   border-radius: 2px 2px 0 0;
 }
+
+/* Keep sticky headers clear of the transparent Android status bar. */
+.safe-area-header {
+  padding-top: calc(0.75rem + var(--resqly-safe-top));
+}
