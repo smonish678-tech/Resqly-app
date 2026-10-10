@@ -9,6 +9,23 @@ import { Textarea } from '@/components/ui/textarea';
 import { LANGUAGE_OPTIONS } from '@/lib/constants';
 import { useAuth } from '@/lib/auth';
 
+const loadRazorpay = () => new Promise((resolve, reject) => {
+  if (window.Razorpay) return resolve(true);
+  const existing = document.querySelector('script[data-resqly-razorpay="1"]');
+  if (existing) {
+    existing.addEventListener('load', () => resolve(true), { once: true });
+    existing.addEventListener('error', () => reject(new Error('Secure checkout could not load. Please check your connection.')), { once: true });
+    return;
+  }
+  const script = document.createElement('script');
+  script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+  script.async = true;
+  script.dataset.resqlyRazorpay = '1';
+  script.onload = () => resolve(true);
+  script.onerror = () => reject(new Error('Secure checkout could not load. Please check your connection.'));
+  document.head.appendChild(script);
+});
+
 const MODES = [
   { key: 'online', title: 'Online consultation', description: 'Talk to a verified doctor by video, from anywhere.', icon: Video },
   { key: 'home_visit', title: 'Doctor home visit', description: 'A nearby doctor visits your home.', icon: House },
@@ -75,6 +92,7 @@ export default function DoctorConsultation() {
     try {
       let location = null;
       if (mode === 'home_visit') location = await getLocation();
+      await loadRazorpay();
       const { data } = await api.post('/doctor-consultations/payment-order', {
         consultation_type: mode,
         problem: problem.trim(),
