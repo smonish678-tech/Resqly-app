@@ -10,6 +10,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
         // Let the bundled web UI paint behind Android's transparent system bars.
         // The web layer must still respect safe-area insets for tappable content.
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -19,7 +20,6 @@ public class MainActivity extends BridgeActivity {
             getWindow().setStatusBarContrastEnforced(false);
             getWindow().setNavigationBarContrastEnforced(false);
         }
-        super.onCreate(savedInstanceState);
 
         WindowInsetsControllerCompat insetsController =
                 WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
