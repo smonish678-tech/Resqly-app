@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Video, FileText, ShieldCheck, AlertTriangle, Plus, Trash2, House } from 'lucide-react';
 import { toast } from 'sonner';
@@ -61,7 +61,7 @@ export default function DoctorCall({ role }) {
     } catch (e) { toast.error(e.response?.data?.detail || 'Could not start this home visit'); }
   };
 
-  const startVideoCall = async () => {
+  const startVideoCall = useCallback(async () => {
     if (!isNativeAgoraCallSupported()) {
       toast.error('Secure video calling is currently available in the Resqly Android app only.');
       return;
@@ -79,9 +79,8 @@ export default function DoctorCall({ role }) {
         authToken: localStorage.getItem('resqly_token') || '',
         participantRole: data.participant_role,
         joinDeadline: data.join_deadline || '',
-        consultationStatus: data.consultation_status || consultation.status,
+        consultationStatus: data.consultation_status || consultation?.status || 'accepted',
       });
-      toast.success('Secure video room opened.');
       await loadConsultation();
     } catch (e) {
       const message = e.response?.data?.detail || e.message || 'Could not start the video call';
@@ -90,7 +89,18 @@ export default function DoctorCall({ role }) {
     } finally {
       setStartingCall(false);
     }
-  };
+  }, [consultationId, consultation?.status, loadConsultation]);
+
+  const autoLaunchForId = useRef('');
+  useEffect(() => {
+    if (!consultation || consultation.consultation_type !== 'online') return;
+    if (!['accepted', 'in_call'].includes(consultation.status)) return;
+    if (!isNativeAgoraCallSupported() || autoLaunchForId.current === consultation.id) return;
+    // Navigating here follows the patient's "Get into video call" tap or the doctor's
+    // Accept tap, so launch native calling without asking for a redundant second tap.
+    autoLaunchForId.current = consultation.id;
+    startVideoCall();
+  }, [consultation?.id, consultation?.consultation_type, consultation?.status, startVideoCall]);
 
   const complete = async () => {
     setCompleting(true);
