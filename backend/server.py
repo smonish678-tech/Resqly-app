@@ -1331,6 +1331,13 @@ async def verify_doctor_payment(
         ).hexdigest()
         if not hmac.compare_digest(expected, payload.razorpay_signature):
             raise HTTPException(status_code=400, detail="Payment signature could not be verified")
+        import razorpay
+        razorpay_client = razorpay.Client(auth=(os.environ.get("RAZORPAY_KEY_ID", ""), key_secret))
+        payment = razorpay_client.payment.fetch(payload.razorpay_payment_id)
+        if payment.get("order_id") != payload.razorpay_order_id or payment.get("status") != "captured":
+            raise HTTPException(status_code=409, detail="Payment is not captured yet. Please wait or contact support.")
+        if int(payment.get("amount") or 0) != int(consultation["amount"]) * 100:
+            raise HTTPException(status_code=400, detail="Payment amount does not match this consultation")
     except HTTPException:
         raise
     except Exception:
