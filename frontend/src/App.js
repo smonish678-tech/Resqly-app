@@ -16,6 +16,7 @@ import ConsumerProfile from '@/pages/consumer/ConsumerProfile';
 import ConsumerNotifications from '@/pages/consumer/ConsumerNotifications';
 import ConsumerFamily from '@/pages/consumer/ConsumerFamily';
 import ConsumerPrescriptions from '@/pages/consumer/ConsumerPrescriptions';
+import DoctorCall from '@/pages/consumer/DoctorCall';
 import ConsumerLabTests from '@/pages/consumer/ConsumerLabTests';
 import ConsumerEmergencyRequest from '@/pages/consumer/ConsumerEmergencyRequest';
 import LocationPicker from '@/pages/consumer/LocationPicker';
@@ -34,6 +35,7 @@ import ProviderDocuments from '@/pages/provider/ProviderDocuments';
 import ProviderProfile from '@/pages/provider/ProviderProfile';
 import ProviderSupport from '@/pages/provider/ProviderSupport';
 import ProviderMarketplace from '@/pages/provider/ProviderMarketplace';
+import DoctorRequests from '@/pages/provider/DoctorRequests';
 import AdminMarketplace from '@/pages/admin/AdminMarketplace';
 
 // Admin
@@ -80,6 +82,7 @@ function App() {
           <Route path="/consumer/onboarding" element={<PrivateRoute allow={['consumer']}><ConsumerOnboarding /></PrivateRoute>} />
           <Route path="/consumer/home" element={<PrivateRoute allow={['consumer']}><ConsumerHome /></PrivateRoute>} />
           <Route path="/consumer/service/:serviceKey" element={<PrivateRoute allow={['consumer']}><ConsumerServiceDetail /></PrivateRoute>} />
+          <Route path="/consumer/doctor-call/:consultationId" element={<PrivateRoute allow={['consumer']}><DoctorCall role="consumer" /></PrivateRoute>} />
           <Route path="/consumer/waitlist" element={<PrivateRoute allow={['consumer']}><ConsumerWaitlist /></PrivateRoute>} />
           <Route path="/consumer/emergency" element={<PrivateRoute allow={['consumer']}><ConsumerEmergency /></PrivateRoute>} />
           <Route path="/consumer/emergency-request" element={<PrivateRoute allow={['consumer']}><ConsumerEmergencyRequest /></PrivateRoute>} />
@@ -99,6 +102,8 @@ function App() {
           <Route path="/provider/dashboard" element={<PrivateRoute allow={['provider']}><ProviderDashboard /></PrivateRoute>} />
           <Route path="/provider/orders" element={<PrivateRoute allow={['provider']}><ProviderOrders /></PrivateRoute>} />
           <Route path="/provider/marketplace" element={<PrivateRoute allow={['provider']}><ProviderMarketplace /></PrivateRoute>} />
+          <Route path="/provider/doctor-requests" element={<PrivateRoute allow={['provider']}><DoctorRequests /></PrivateRoute>} />
+          <Route path="/provider/doctor-call/:consultationId" element={<PrivateRoute allow={['provider']}><DoctorCall role="provider" /></PrivateRoute>} />
           <Route path="/provider/earnings" element={<PrivateRoute allow={['provider']}><ProviderEarnings /></PrivateRoute>} />
           <Route path="/provider/reviews" element={<PrivateRoute allow={['provider']}><ProviderReviews /></PrivateRoute>} />
           <Route path="/provider/documents" element={<PrivateRoute allow={['provider']}><ProviderDocuments /></PrivateRoute>} />
