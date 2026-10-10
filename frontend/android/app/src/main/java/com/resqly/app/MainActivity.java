@@ -10,6 +10,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(AgoraCallPlugin.class);
         super.onCreate(savedInstanceState);
         // Let the bundled web UI paint behind Android's transparent system bars.
         // The web layer must still respect safe-area insets for tappable content.
