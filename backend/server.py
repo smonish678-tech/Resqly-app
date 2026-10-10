@@ -1671,7 +1671,7 @@ async def write_doctor_prescription(
     )
     if not consultation or user.get("category") != "doctor" or user.get("approval_status") != "approved":
         raise HTTPException(status_code=403, detail="Only the assigned verified doctor can write this prescription")
-    allowed_prescription_states = ["accepted", "in_progress", "completed"] if consultation.get("consultation_type") == "home_visit" else ["in_call", "completed"]
+    allowed_prescription_states = ["in_progress", "completed"] if consultation.get("consultation_type") == "home_visit" else ["in_call", "completed"]
     if consultation.get("status") not in allowed_prescription_states:
         raise HTTPException(status_code=409, detail="Prescription writing is available after the consultation starts")
     meds = []
