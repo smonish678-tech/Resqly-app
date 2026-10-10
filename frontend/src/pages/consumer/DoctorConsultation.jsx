@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { Video, House, Globe2, Languages, ShieldCheck, Clock3, MapPin, Stethoscope, Search, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
@@ -44,8 +45,11 @@ export default function DoctorConsultation() {
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [now, setNow] = useState(Date.now());
-  const canCheckout = mode === 'online' ? Boolean(config?.online_available) : Boolean(config?.home_visit_available);
-  const unavailableMessage = mode === 'online' ? config?.online_message : config?.message;
+  const androidCallSupported = Capacitor.getPlatform() === 'android';
+  const canCheckout = mode === 'online' ? Boolean(config?.online_available && androidCallSupported) : Boolean(config?.home_visit_available);
+  const unavailableMessage = mode === 'online' && !androidCallSupported
+    ? 'Online video consultations currently require the Resqly Android app. Home visits can still be booked here.'
+    : mode === 'online' ? config?.online_message : config?.message;
 
   useEffect(() => {
     api.get('/doctor-consultations/config').then(({ data }) => setConfig(data)).catch(() => setConfig({ available: false, home_visit_available: false, online_available: false, message: 'Secure home-visit checkout is not configured yet. Please try again shortly.', online_message: 'Online video consultation is disabled until secure Agora calling is connected and tested.' }));
