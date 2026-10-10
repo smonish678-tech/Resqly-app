@@ -34,7 +34,7 @@ export default function DoctorCall({ role }) {
   }, [consultationId]);
 
   const savePrescription = async () => {
-    if (!medications.some((m) => m.name.trim())) return toast.error('Add at least one medication, or leave the prescription blank and use notes only.');
+    if (!medications.some((m) => m.name.trim()) && !notes.trim()) return toast.error('Add a medicine or write care instructions before saving.');
     setSaving(true);
     try {
       await api.post('/doctor-consultations/' + consultationId + '/prescription', { consultation_id: consultationId, title, notes, follow_up: followUp, medications: medications.filter((m) => m.name.trim()) });
