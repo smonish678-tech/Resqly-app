@@ -20,6 +20,8 @@ apply from: "variables.gradle"
 
 allprojects {
     repositories {
+        // Official Agora RTC Android SDK repository (required for io.agora.rtc artifacts).
+        maven { url 'https://download.agora.io/maven/' }
         google()
         mavenCentral()
     }
