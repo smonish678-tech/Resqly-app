@@ -1712,7 +1712,7 @@ async def complete_doctor_consultation(consultation_id: str, user: Dict[str, Any
     if consultation_before.get("consultation_type") == "home_visit":
         if user["role"] != "provider":
             raise HTTPException(status_code=403, detail="Only the assigned doctor can complete a home visit")
-        allowed_statuses = ["accepted", "in_progress"]
+        allowed_statuses = ["in_progress"]
     else:
         allowed_statuses = ["in_call"]
     result = await db.doctor_consultations.update_one(
