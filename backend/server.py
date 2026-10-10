@@ -1608,6 +1608,20 @@ async def doctor_consultation_requests(user: Dict[str, Any] = Depends(require_ro
     return {"requests": requests}
 
 
+@api.post("/providers/me/doctor-consultations/{consultation_id}/start-visit")
+async def start_doctor_home_visit(consultation_id: str, user: Dict[str, Any] = Depends(require_role("provider"))):
+    if user.get("category") != "doctor" or user.get("approval_status") != "approved":
+        raise HTTPException(status_code=403, detail="Only an approved doctor can start a home visit")
+    result = await db.doctor_consultations.update_one(
+        {"id": consultation_id, "provider_id": user["id"], "consultation_type": "home_visit", "status": "accepted"},
+        {"$set": {"status": "in_progress", "visit_started_at": now_iso(), "updated_at": now_iso()}},
+    )
+    if result.modified_count != 1:
+        raise HTTPException(status_code=409, detail="This home visit is not ready to start")
+    consultation = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
+    return {"consultation": consultation}
+
+
 @api.post("/providers/me/doctor-consultations/{consultation_id}/accept")
 async def accept_doctor_consultation(consultation_id: str, user: Dict[str, Any] = Depends(require_role("provider"))):
     if user.get("category") != "doctor" or user.get("approval_status") != "approved" or user.get("availability_status") != "available":
@@ -1652,11 +1666,14 @@ async def write_doctor_prescription(
     payload: DoctorPrescriptionCreate,
     user: Dict[str, Any] = Depends(require_role("provider")),
 ):
-    consultation = await db.doctor_consultations.find_one({
-        "id": consultation_id, "provider_id": user["id"], "status": {"$in": ["in_call", "completed"]}
-    }, {"_id": 0})
+    consultation = await db.doctor_consultations.find_one(
+        {"id": consultation_id, "provider_id": user["id"]}, {"_id": 0}
+    )
     if not consultation or user.get("category") != "doctor" or user.get("approval_status") != "approved":
         raise HTTPException(status_code=403, detail="Only the assigned verified doctor can write this prescription")
+    allowed_prescription_states = ["accepted", "in_progress", "completed"] if consultation.get("consultation_type") == "home_visit" else ["in_call", "completed"]
+    if consultation.get("status") not in allowed_prescription_states:
+        raise HTTPException(status_code=409, detail="Prescription writing is available after the consultation starts")
     meds = []
     for med in payload.medications:
         name = str(med.get("name") or "").strip()
@@ -1692,8 +1709,14 @@ async def complete_doctor_consultation(consultation_id: str, user: Dict[str, Any
         raise HTTPException(status_code=403, detail="Forbidden")
     if user["role"] == "provider" and consultation_before.get("provider_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
+    if consultation_before.get("consultation_type") == "home_visit":
+        if user["role"] != "provider":
+            raise HTTPException(status_code=403, detail="Only the assigned doctor can complete a home visit")
+        allowed_statuses = ["accepted", "in_progress"]
+    else:
+        allowed_statuses = ["in_call"]
     result = await db.doctor_consultations.update_one(
-        {"id": consultation_id, "status": "in_call"},
+        {"id": consultation_id, "status": {"$in": allowed_statuses}},
         {"$set": {"status": "completed", "completed_at": now_iso(), "updated_at": now_iso()}},
     )
     if result.modified_count != 1:
