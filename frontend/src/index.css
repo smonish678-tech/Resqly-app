@@ -53,7 +53,7 @@ code {
   }
 }
 
-/* Resqly mobile frame */
+/* Android edge-to-edge safe areas. Keep backgrounds full-bleed; inset interactive content. */\n:root {\n  --resqly-safe-top: env(safe-area-inset-top, 0px);\n  --resqly-safe-bottom: env(safe-area-inset-bottom, 0px);\n}\n\n/* Resqly mobile frame */
 .resqly-shell {
   min-height: 100vh;
   background: linear-gradient(180deg, #EAF2FF 0%, #F4F7FB 30%);
