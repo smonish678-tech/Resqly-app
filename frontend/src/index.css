@@ -56,6 +56,7 @@ code {
 /* Android edge-to-edge safe areas. Keep backgrounds full-bleed; inset interactive content. */\n:root {\n  --resqly-safe-top: env(safe-area-inset-top, 0px);\n  --resqly-safe-bottom: env(safe-area-inset-bottom, 0px);\n}\n\n/* Resqly mobile frame */
 .resqly-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   background: linear-gradient(180deg, #EAF2FF 0%, #F4F7FB 30%);
 }
 
@@ -63,6 +64,7 @@ code {
   max-width: 480px;
   margin: 0 auto;
   min-height: 100vh;
+  min-height: 100dvh;
   background: #FFFFFF;
   position: relative;
   box-shadow: 0 12px 60px rgba(15, 23, 42, 0.06);
@@ -116,6 +118,7 @@ code {
     0 2px 8px rgba(30, 64, 175, 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.6);
   border-radius: 28px;
+  margin-bottom: var(--resqly-safe-bottom);
 }
 
 .glass-dock-tab {
