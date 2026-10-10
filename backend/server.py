@@ -1573,15 +1573,57 @@ async def get_doctor_consultation(consultation_id: str, user: Dict[str, Any] = D
 
 @api.post("/doctor-consultations/{consultation_id}/cancel")
 async def cancel_doctor_consultation(consultation_id: str, user: Dict[str, Any] = Depends(require_role("consumer"))):
+    consultation = await db.doctor_consultations.find_one(
+        {"id": consultation_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    if not consultation:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+    allowed = consultation.get("status") in ("payment_pending", "broadcasting")
+    allowed = allowed or (
+        consultation.get("consultation_type") == "home_visit"
+        and consultation.get("status") == "accepted"
+    )
+    if not allowed:
+        raise HTTPException(status_code=409, detail="This consultation can no longer be cancelled")
     result = await db.doctor_consultations.update_one(
-        {"id": consultation_id, "user_id": user["id"], "status": {"$in": ["payment_pending", "broadcasting"]}},
+        {"id": consultation_id, "user_id": user["id"], "status": consultation.get("status")},
         {"$set": {"status": "cancelled", "cancelled_at": now_iso(), "updated_at": now_iso()}},
     )
     if result.modified_count != 1:
-        raise HTTPException(status_code=409, detail="This consultation can no longer be cancelled")
-    consultation = await db.doctor_consultations.find_one({"id": consultation_id, "user_id": user["id"]}, {"_id": 0})
-    return {"consultation": consultation}
-
+        raise HTTPException(status_code=409, detail="This consultation has already changed")
+    refund_status = None
+    if consultation.get("payment_status") == "paid" and consultation.get("razorpay_payment_id"):
+        refund_status = "refund_pending"
+        try:
+            key_id = os.environ.get("RAZORPAY_KEY_ID", "")
+            key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+            if key_id and key_secret:
+                import razorpay
+                client = razorpay.Client(auth=(key_id, key_secret))
+                client.payment.refund(
+                    consultation["razorpay_payment_id"],
+                    data={"amount": int(consultation.get("amount") or 0) * 100},
+                )
+                refund_status = "refunded"
+        except Exception:
+            logging.exception("Doctor consultation cancellation refund failed")
+        await db.doctor_consultations.update_one(
+            {"id": consultation_id, "status": "cancelled"},
+            {"$set": {"payment_status": refund_status, "refund_status": refund_status, "updated_at": now_iso()}},
+        )
+    if consultation.get("provider_id"):
+        await db.providers.update_one(
+            {"id": consultation["provider_id"], "active_consultation_id": consultation_id},
+            {"$set": {"availability_status": "available"}},
+            {"$unset": {"active_consultation_id": ""}},
+        )
+    await db.notifications.insert_one({
+        "id": new_id(), "user_id": user["id"], "title": "Doctor consultation cancelled",
+        "message": "Your consultation was cancelled." + ((" Refund status: " + refund_status.replace("_", " ") + ".") if refund_status else ""),
+        "type": "doctor_consultation", "related_id": consultation_id, "read": False, "created_at": now_iso(),
+    })
+    fresh = await db.doctor_consultations.find_one({"id": consultation_id, "user_id": user["id"]}, {"_id": 0})
+    return {"consultation": fresh}
 
 @api.get("/providers/me/doctor-consultations")
 async def doctor_consultation_requests(user: Dict[str, Any] = Depends(require_role("provider"))):
