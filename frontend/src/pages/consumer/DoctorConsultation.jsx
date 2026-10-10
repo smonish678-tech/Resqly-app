@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import api from '@/lib/api';
 import MobileShell from '@/components/MobileShell';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { LANGUAGE_OPTIONS } from '@/lib/constants';
 import { useAuth } from '@/lib/auth';
@@ -39,7 +40,7 @@ export default function DoctorConsultation() {
   const [problem, setProblem] = useState('');
   const [languages, setLanguages] = useState([]);
   const [coords, setCoords] = useState(me?.latitude != null && me?.longitude != null ? { latitude: me.latitude, longitude: me.longitude } : null);
-  const [address, setAddress] = useState(me?.location || me?.city || '');
+  const [address, setAddress] = useState(me?.location || '');
   const [config, setConfig] = useState(null);
   const [request, setRequest] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -93,11 +94,12 @@ export default function DoctorConsultation() {
   const submit = async () => {
     if (problem.trim().length < 8) return toast.error('Tell the doctor a little more about the problem (at least 8 characters).');
     if (!languages.length) return toast.error('Choose at least one language you are comfortable speaking.');
+    if (mode === 'home_visit' && address.trim().length < 8) return toast.error('Enter the full home address, including locality and a landmark.');
     if (!canCheckout) return toast.error(unavailableMessage || 'This consultation option is not available yet.');
     setLoading(true);
     try {
       let location = null;
-      if (mode === 'home_visit') location = await getLocation();
+      if (mode === 'home_visit') location = await getLocation(true);
       await loadRazorpay();
       const { data } = await api.post('/doctor-consultations/payment-order', {
         consultation_type: mode,
@@ -194,7 +196,7 @@ export default function DoctorConsultation() {
           <div className="grid grid-cols-2 gap-2 mt-3">
             {LANGUAGE_OPTIONS.map((language) => <label key={language} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${languages.includes(language) ? 'border-blue-700 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-700'}`}><input type="checkbox" checked={languages.includes(language)} onChange={() => toggleLanguage(language)} />{language}</label>)}
           </div>
-          {mode === 'online' ? <div className="mt-4 rounded-xl bg-slate-50 p-3 flex gap-2"><Globe2 className="w-4 h-4 text-blue-700 flex-shrink-0 mt-0.5" /><p className="text-xs text-slate-600">Online matching can include eligible doctors anywhere; distance does not limit the search.</p></div> : <div className="mt-4 rounded-xl bg-slate-50 p-3"><div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><MapPin className="w-4 h-4 text-blue-700" />Home visit location</div><p className="text-xs text-slate-500 mt-1">{address || 'We will ask for your current location before checkout.'}</p><button onClick={async () => { try { const pos = await getLocation(); setAddress(`${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)}`); } catch (e) { toast.error(e.message || 'Location permission needed'); } }} disabled={locationLoading} className="text-xs text-blue-700 font-semibold mt-2">{locationLoading ? 'Getting location…' : 'Use my current location'}</button></div>}
+          {mode === 'online' ? <div className="mt-4 rounded-xl bg-slate-50 p-3 flex gap-2"><Globe2 className="w-4 h-4 text-blue-700 flex-shrink-0 mt-0.5" /><p className="text-xs text-slate-600">Online matching can include eligible doctors anywhere; distance does not limit the search.</p></div> : <div className="mt-4 rounded-xl bg-slate-50 p-3"><div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><MapPin className="w-4 h-4 text-blue-700" />Where should the doctor visit?</div><label className="block text-xs font-semibold text-slate-600 mt-3 mb-1">Full home address and landmark *</label><Input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={240} placeholder="Flat / house, street, locality, landmark" /><p className="text-xs text-slate-500 mt-2">{coords ? 'Current GPS location acquired.' : 'We will ask for your current GPS location before payment.'} Your exact address is shared only with the assigned doctor.</p><button onClick={async () => { try { await getLocation(true); toast.success('Current location captured'); } catch (e) { toast.error(e.message || 'Location permission needed'); } }} disabled={locationLoading} className="text-xs text-blue-700 font-semibold mt-2">{locationLoading ? 'Getting location…' : 'Refresh current GPS location'}</button></div>}
           {!canCheckout && <div className="mt-4 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" /><p className="text-xs text-amber-900">{unavailableMessage || 'Checking service availability…'}</p></div>}
           {canCheckout && <div className="mt-4 rounded-xl border border-slate-200 p-3"><div className="flex items-center justify-between"><span className="text-sm text-slate-600">{mode === 'online' ? 'Online consultation' : 'Doctor home visit'}</span><span className="font-bold text-slate-900">₹{mode === 'online' ? config.online_price : config.home_visit_price}</span></div><p className="text-[11px] text-slate-500 mt-1">Final price is shown before payment. Your request is broadcast only after payment verification.</p></div>}
           <Button onClick={submit} disabled={loading || !canCheckout} className="w-full mt-4 bg-blue-700 hover:bg-blue-800">{loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Preparing secure checkout…</> : canCheckout ? 'Continue to secure payment' : 'Not available yet'}</Button>
