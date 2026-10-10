@@ -75,7 +75,7 @@ export default function DoctorCall({ role }) {
             <button onClick={() => navigate(role === 'provider' ? '/provider/doctor-requests' : '/consumer/prescriptions')} className="rounded-xl bg-rose-600 p-3 text-center"><PhoneOff className="w-5 h-5 mx-auto"/><span className="block text-[10px] mt-1">Leave</span></button>
           </div>
         </div>
-        {role === 'provider' && (
+        {role === 'provider' && ['in_call', 'completed'].includes(consultation.status) && (
           <div className="resqly-card p-5 space-y-3">
             <div className="flex items-center gap-2"><FileText className="w-5 h-5 text-blue-700"/><h2 className="font-bold text-slate-900">Write prescription</h2></div>
             <p className="text-xs text-slate-500">Saved prescriptions appear in the patient’s Prescriptions (RX) tab.</p>
@@ -88,7 +88,7 @@ export default function DoctorCall({ role }) {
           </div>
         )}
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex gap-2"><AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5"/><p className="text-xs text-amber-900">Do not use this screen for clinical care until video calling is enabled and tested. Prescription saving is available only to the assigned, verified doctor.</p></div>
-        <Button variant="outline" onClick={complete} disabled={completing || !['accepted', 'in_call'].includes(consultation.status)} className="w-full">{completing ? 'Finishing…' : 'Mark consultation complete'}</Button>
+        <Button variant="outline" onClick={complete} disabled={completing || consultation.status !== 'in_call'} className="w-full">{completing ? 'Finishing…' : consultation.status === 'in_call' ? 'Mark consultation complete' : 'Complete after the video call'}</Button>
       </div>
     </MobileShell>
   );
