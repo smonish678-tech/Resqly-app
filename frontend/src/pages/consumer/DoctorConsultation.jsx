@@ -48,7 +48,7 @@ export default function DoctorConsultation() {
   const unavailableMessage = mode === 'online' ? config?.online_message : config?.message;
 
   useEffect(() => {
-    api.get('/doctor-consultations/config').then(({ data }) => setConfig(data)).catch(() => setConfig({ available: false, message: 'Doctor consultations are being set up. Please try again shortly.' }));
+    api.get('/doctor-consultations/config').then(({ data }) => setConfig(data)).catch(() => setConfig({ available: false, home_visit_available: false, online_available: false, message: 'Secure home-visit checkout is not configured yet. Please try again shortly.', online_message: 'Online video consultation is disabled until secure Agora calling is connected and tested.' }));
   }, []);
 
   useEffect(() => {
