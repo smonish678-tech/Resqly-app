@@ -1,47 +1,63 @@
-# Resqly doctor consultation workflow and Agora integration gate
+# Resqly doctor consultation workflow and launch gates
 
-## Current implementation audit
+## Implemented in this branch
 
-- The consumer app routes `/consumer/service/:serviceKey` to `ConsumerServiceDetail`.
-- `doctor` currently uses the generic waitlist form. It does not create an appointment, process a doctor-consultation payment, issue a call invitation, or join an RTC room.
-- The current FastAPI backend has provider categories and KYC metadata for doctors, but no doctor appointment/call-token endpoints were found in `backend/server.py`.
-- The Android shell is a Capacitor app. Native Kotlin RTC should be exposed to the existing React app through a Capacitor plugin; a standalone Activity that is not reachable from the app would not complete the customer journey.
+- Replaced the doctor waitlist entry with a two-mode consultation flow: **Online consultation** and **Doctor home visit**.
+- Patients describe the concern and select one or more languages. Online requests are matched globally by language; home visits additionally require patient location and a 25 km radius.
+- Doctor KYC collects languages; the backend rejects doctor KYC submission without at least one language.
+- Payment checkout is server-created with Razorpay. A request is not broadcast until the payment signature, order ID, captured state and amount are verified server-side.
+- Eligible doctors must be approved, online/available, and language-matched. A home visit also requires a recent location and distance within 25 km.
+- Acceptance reserves the doctor as busy before assigning the request, preventing the same doctor from accepting two simultaneous requests. An active consultation prevents the doctor switching back to Available.
+- Accepted requests get a five-minute join deadline in the record and patient UI. Prescriptions can be written by the assigned verified doctor and are stored in the existing consumer prescriptions collection; medicine and follow-up details render in the RX screen.
+- Fixed malformed safe-area CSS and moved native edge-to-edge window configuration to after Activity creation.
 
-## Proposed customer workflow
+## Required server configuration
 
-1. Sign in to Resqly and finish the consumer profile.
-2. Open **Doctor** from the service grid.
-3. Choose consultation mode (video or voice), specialty, and an available verified doctor.
-4. Review the doctor's credentials, fee, and available time; choose instant or scheduled consultation.
-5. Confirm patient details and optional reason/symptoms. Show a privacy notice and state that this is not an emergency service.
-6. Confirm booking and payment. The backend must atomically reserve the slot and record payment state before marking the appointment confirmed.
-7. Show the appointment card under Bookings, with appointment time, doctor, payment state, cancel/reschedule rules, and a reminder.
-8. For scheduled appointments, allow the doctor to mark ready; enable **Join consultation** only for the booked patient and assigned doctor in the permitted time window.
-9. Backend authorizes the appointment participant and returns a short-lived Agora RTC token for a server-selected channel and UID. The App Certificate must remain server-side; never ship it in the app or frontend.
-10. Join the call. Show local preview, remote participant, connection state, mic/camera toggles, camera switch, and leave action. Handle permission denial, reconnecting, remote user departure, and token expiry.
-11. On leave, record start/end time and status server-side. Show consultation completed and next steps; preserve medical records only through explicit, access-controlled workflows.
+Set these secrets/configuration values in the backend hosting environment, not in frontend code or Git:
 
-## Agora implementation plan
+- `RAZORPAY_KEY_ID`
+- `RAZORPAY_KEY_SECRET`
+- `DOCTOR_ONLINE_PRICE_INR` (positive integer, INR)
+- `DOCTOR_HOME_VISIT_PRICE_INR` (positive integer, INR)
 
-Target: native Android Kotlin RTC SDK using the Communication profile, integrated into the current Capacitor app through a native Capacitor plugin. Both participants publish and subscribe to audio/video in the same channel.
+If any are missing or a price is zero, the API fails closed and checkout remains unavailable. This prevents fake or unpaid broadcasts. Do not use production payment credentials for local testing.
 
-- Follow the official Agora Android Quickstart and API-Examples Android project.
-- Use the Agora Skills repository as implementation guidance.
-- First smoke test: two participants, distinct UIDs, same channel, valid temporary token per UID. Generate tokens in Agora Console (Manage credentials → Generate Temp Token); use the exact same channel string and UID when generating and joining.
-- The Agora CLI readiness gate must be run in a local authenticated environment: `agora project env --json`, then `agora project doctor --feature rtc --json`. Select the intended Agora project and do not paste secrets into chat or commit them.
-- Production: implement an authenticated backend token endpoint that checks the current user's role, appointment ownership/assignment, appointment state and allowed join window before issuing a short-lived RTC token. Store App ID and App Certificate in server-side secrets. Never accept arbitrary channel/UID/token requests from untrusted clients.
-- Add call metadata endpoints and idempotent lifecycle updates only after the current booking/payment model is defined.
+## Current customer/provider workflow
 
-## Verification checklist
+1. Patient opens Doctors and chooses online video consultation or a home visit.
+2. Patient describes the issue and chooses comfortable languages. Home visits capture GPS location.
+3. Backend creates a Razorpay order. Checkout closes or fails → no broadcast. Verified captured payment → request broadcast.
+4. Available, approved doctors with matching languages see requests. Online requests can match globally; home visits are limited to 25 km.
+5. First eligible doctor to accept is assigned; the backend atomically marks that doctor busy. The patient sees a five-minute join countdown.
+6. The assigned doctor can write a prescription. It is saved to the patient's existing Prescriptions/RX tab.
+7. Completing the consultation releases the assigned doctor back to Available.
+
+## Critical launch blocker: RTC video is not yet operational
+
+The consultation room deliberately shows a safety gate rather than pretending a call is connected. The five-minute deadline is recorded and displayed, but native Agora media, join-token service, join acknowledgements, deadline-expiry cleanup/refund policy, and two-device testing are **not complete**. Do not use this build for live patient care until those items are completed and verified.
+
+### Agora implementation gate
+
+Target: native Android Kotlin RTC SDK integrated into the existing Capacitor app via a native Capacitor plugin. Both participants must publish and subscribe to audio/video in the same server-selected channel.
+
+- Follow the official Agora Android Quickstart: https://docs.agora.io/en/realtime-media/rtc/get-started-sdk/android.md
+- Example: https://github.com/AgoraIO/API-Examples/tree/master/Android/APIExample
+- Token-server guide: https://docs.agora.io/en/realtime-media/rtc/build/authenticate-users/deploy-token-server
+- Agora Skills: https://github.com/AgoraIO/skills
+- In an authenticated local environment, select the correct Agora project and run `agora project env --json`, then `agora project doctor --feature rtc --json`.
+- Smoke-test two participants with distinct UIDs and temporary tokens for the same channel. Never commit the App Certificate or issue tokens from the frontend.
+- Production token endpoint must authorize the assigned patient/doctor, booking state and join window, and issue short-lived tokens server-side.
+
+## Verification still required
 
 - [ ] Frontend production build passes.
 - [ ] Android Gradle debug build passes.
-- [ ] Test edge-to-edge on Android 13 and Android 15+; confirm status/navigation contrast, touch targets and keyboard/insets.
-- [ ] Agora CLI project doctor passes for RTC.
-- [ ] Two participants join with distinct UIDs and matching per-UID temporary tokens.
-- [ ] Verify audio both directions, video both directions, mic mute/unmute, camera on/off, leave/rejoin, permissions denied, and token expiry.
-- [ ] Backend authorization tests prove that an unrelated consumer cannot mint a token or join another patient's channel.
+- [ ] Test edge-to-edge on Android 13 and Android 15+.
+- [ ] Razorpay test payment: failed, dismissed, captured, replayed signature, mismatched amount and duplicate verification.
+- [ ] Concurrent doctor acceptance test; busy/offline doctors receive no new requests.
+- [ ] Agora CLI RTC doctor passes.
+- [ ] Two-device audio/video, mic/camera controls, leave/rejoin, permissions denied, network interruption and token expiry.
+- [ ] Prescription access-control test and patient RX display test.
+- [ ] Decide and implement refund/no-show policy before the five-minute join deadline is enforced in production.
 
-## Current limitations
-
-This document is an audit and implementation gate, not a claim that RTC calling is already operational. The current execution environment could not clone GitHub to run Gradle/frontend builds, and no authenticated Agora CLI session/project credentials or Android devices are available here. The doctor booking backend and Agora call bridge must be implemented and tested before the service is described as production-ready.
+This document records the actual branch state, including what is still blocked. No build or device test is claimed unless a CI run confirms it.
