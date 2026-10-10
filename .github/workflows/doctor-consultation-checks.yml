@@ -17,6 +17,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: doctor-consultation-checks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend-syntax:
     name: Backend Python syntax
