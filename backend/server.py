@@ -1226,12 +1226,12 @@ async def _expire_unjoined_doctor_consultations():
     """Expire accepted bookings after five minutes and attempt a full refund once."""
     now = now_iso()
     cursor = db.doctor_consultations.find(
-        {"status": "accepted", "join_deadline": {"$lte": now}}, {"_id": 0}
+        {"status": "accepted", "consultation_type": "online", "join_deadline": {"$type": "string", "$lte": now}}, {"_id": 0}
     )
     expired = await cursor.to_list(100)
     for item in expired:
         lock = await db.doctor_consultations.update_one(
-            {"id": item["id"], "status": "accepted", "join_deadline": {"$lte": now}},
+            {"id": item["id"], "status": "accepted", "consultation_type": "online", "join_deadline": {"$type": "string", "$lte": now}},
             {"$set": {"status": "refund_processing", "updated_at": now}},
         )
         if lock.modified_count != 1:
@@ -1629,7 +1629,7 @@ async def accept_doctor_consultation(consultation_id: str, user: Dict[str, Any] 
     if reserve.modified_count != 1:
         raise HTTPException(status_code=409, detail="You are no longer available for new requests")
     now = datetime.now(timezone.utc)
-    deadline = (now + timedelta(minutes=5)).isoformat()
+    deadline = (now + timedelta(minutes=5)).isoformat() if consultation.get("consultation_type") == "online" else None
     accepted = await db.doctor_consultations.update_one(
         {"id": consultation_id, "status": "broadcasting", "expires_at": {"$gt": now_iso()}},
         {"$set": {"status": "accepted", "provider_id": user["id"], "doctor_name": user.get("name") or "Doctor", "accepted_at": now.isoformat(), "join_deadline": deadline, "updated_at": now.isoformat()}},
