@@ -1064,6 +1064,8 @@ async def set_availability(
     doc = await db.providers.find_one({"id": user["id"]}, {"_id": 0})
     if payload.availability_status in ("available", "busy") and doc.get("approval_status") != "approved":
         raise HTTPException(status_code=400, detail="You must be approved before going available")
+    if doc.get("active_consultation_id") and payload.availability_status != "busy":
+        raise HTTPException(status_code=409, detail="Finish your active doctor consultation before changing availability")
     updates = {"availability_status": payload.availability_status}
     if payload.availability_status == "available":
         lat = payload.latitude if payload.latitude is not None else doc.get("latitude")
