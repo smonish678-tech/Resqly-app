@@ -1221,6 +1221,51 @@ async def my_reviews(user: Dict[str, Any] = Depends(require_role("provider"))):
 
 
 # ---------------- Doctor consultations ----------------
+async def _expire_unjoined_doctor_consultations():
+    """Expire accepted bookings after five minutes and attempt a full refund once."""
+    now = now_iso()
+    cursor = db.doctor_consultations.find(
+        {"status": "accepted", "join_deadline": {"$lte": now}}, {"_id": 0}
+    )
+    expired = await cursor.to_list(100)
+    for item in expired:
+        lock = await db.doctor_consultations.update_one(
+            {"id": item["id"], "status": "accepted", "join_deadline": {"$lte": now}},
+            {"$set": {"status": "refund_processing", "updated_at": now}},
+        )
+        if lock.modified_count != 1:
+            continue
+        refund_status = "refund_pending"
+        try:
+            key_id = os.environ.get("RAZORPAY_KEY_ID", "")
+            key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+            payment_id = item.get("razorpay_payment_id")
+            if key_id and key_secret and payment_id:
+                import razorpay
+                client = razorpay.Client(auth=(key_id, key_secret))
+                client.payment.refund(payment_id, data={"amount": int(item.get("amount") or 0) * 100})
+                refund_status = "refunded"
+        except Exception:
+            logging.exception("Doctor no-show refund failed")
+        final_status = "refunded_no_show" if refund_status == "refunded" else "refund_pending"
+        await db.doctor_consultations.update_one(
+            {"id": item["id"], "status": "refund_processing"},
+            {"$set": {"status": final_status, "refund_status": refund_status, "updated_at": now}},
+        )
+        if item.get("provider_id"):
+            await db.providers.update_one(
+                {"id": item["provider_id"], "active_consultation_id": item["id"]},
+                {"$set": {"availability_status": "available"}},
+                {"$unset": {"active_consultation_id": ""}},
+            )
+        await db.notifications.insert_one({
+            "id": new_id(), "user_id": item["user_id"],
+            "title": "Consultation join window expired",
+            "message": "The 5-minute join window expired. Refund status: " + refund_status.replace("_", " ") + ".",
+            "type": "doctor_consultation", "related_id": item["id"], "read": False, "created_at": now,
+        })
+
+
 def _doctor_prices():
     try:
         online = int(os.environ.get("DOCTOR_ONLINE_PRICE_INR", "0"))
@@ -1433,6 +1478,7 @@ async def verify_doctor_payment(
 
 @api.get("/doctor-consultations/{consultation_id}")
 async def get_doctor_consultation(consultation_id: str, user: Dict[str, Any] = Depends(current_user)):
+    await _expire_unjoined_doctor_consultations()
     consultation = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
     if not consultation:
         raise HTTPException(status_code=404, detail="Consultation not found")
@@ -1459,6 +1505,7 @@ async def cancel_doctor_consultation(consultation_id: str, user: Dict[str, Any] 
 
 @api.get("/providers/me/doctor-consultations")
 async def doctor_consultation_requests(user: Dict[str, Any] = Depends(require_role("provider"))):
+    await _expire_unjoined_doctor_consultations()
     if user.get("category") != "doctor" or user.get("approval_status") != "approved" or user.get("availability_status") != "available":
         return {"requests": []}
     query = {
