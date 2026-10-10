@@ -1386,6 +1386,8 @@ async def create_doctor_payment_order(
         raise HTTPException(status_code=400, detail="Choose at least one language")
     if payload.consultation_type == "home_visit" and (payload.latitude is None or payload.longitude is None):
         raise HTTPException(status_code=400, detail="Location is required for a home visit")
+    if payload.consultation_type == "home_visit" and len((payload.address or "").strip()) < 8:
+        raise HTTPException(status_code=400, detail="Enter the full home address, including locality and a landmark")
     online_price, home_price = _doctor_prices()
     price = online_price if payload.consultation_type == "online" else home_price
     key_id = os.environ.get("RAZORPAY_KEY_ID", "")
@@ -1428,7 +1430,7 @@ async def create_doctor_payment_order(
         "languages": languages,
         "latitude": payload.latitude,
         "longitude": payload.longitude,
-        "address": payload.address or user.get("location") or user.get("city") or "",
+        "address": (payload.address or "").strip() if payload.consultation_type == "home_visit" else (payload.address or user.get("location") or user.get("city") or ""),
         "amount": price,
         "currency": "INR",
         "payment_status": "pending",
