@@ -1,0 +1,88 @@
+name: Doctor Consultation Checks
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/doctor-consultation-checks.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: doctor-consultation-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-syntax:
+    name: Backend Python syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile backend modules
+        run: python -m compileall -q backend
+      - name: Test Agora AccessToken2 generation
+        run: |
+          cd backend
+          python -m unittest discover -s tests
+
+  frontend-build:
+    name: Frontend production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      REACT_APP_BACKEND_URL: https://example.invalid
+      GENERATE_SOURCEMAP: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build production bundle
+        run: CI=false yarn build
+
+  android-debug-build:
+    name: Android debug APK build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      REACT_APP_BACKEND_URL: https://example.invalid
+      GENERATE_SOURCEMAP: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build web bundle
+        run: CI=false yarn build
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+      - name: Build Android debug APK
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug

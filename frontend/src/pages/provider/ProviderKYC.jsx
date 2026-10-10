@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth';
 import MobileShell from '@/components/MobileShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { CITIES } from '@/lib/constants';
+import { CITIES, LANGUAGE_OPTIONS } from '@/lib/constants';
 
 export default function ProviderKYC() {
   const navigate = useNavigate();
@@ -19,6 +19,7 @@ export default function ProviderKYC() {
   const [name, setName] = useState('');
   const [city, setCity] = useState('Bangalore');
   const [serviceArea, setServiceArea] = useState('');
+  const [languages, setLanguages] = useState([]);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -29,6 +30,7 @@ export default function ProviderKYC() {
     setName(data.provider?.name || '');
     setCity(data.provider?.city || 'Bangalore');
     setServiceArea(data.provider?.service_area || '');
+    setLanguages(Array.isArray(data.provider?.languages) ? data.provider.languages : []);
     const docsRes = await api.get('/providers/me/documents');
     setDocs(docsRes.data.documents || []);
   };
@@ -38,7 +40,7 @@ export default function ProviderKYC() {
   const saveBasic = async () => {
     setSaving(true);
     try {
-      await api.patch('/providers/me', { name, city, service_area: serviceArea });
+      await api.patch('/providers/me', { name, city, service_area: serviceArea, languages });
       toast.success('Saved');
       await refresh();
       await fetchAll();
@@ -70,6 +72,10 @@ export default function ProviderKYC() {
   const submit = async () => {
     setSubmitting(true);
     try {
+      if (provider?.category === 'doctor' && languages.length === 0) {
+        toast.error('Select at least one language you can consult in');
+        return;
+      }
       await api.post('/providers/me/submit');
       toast.success('Submitted for review');
       await refresh();
@@ -100,6 +106,20 @@ export default function ProviderKYC() {
             </select>
           </Field>
           <Field label="Service Area (e.g. HSR Layout, Whitefield)"><Input data-testid="kyc-service-area" value={serviceArea} onChange={(e) => setServiceArea(e.target.value)} /></Field>
+          {provider?.category === 'doctor' && (
+            <Field label="Languages you can consult in *">
+              <p className="text-xs text-slate-500 mb-2">Select every language you can comfortably use with a patient. Online requests are matched by language, not city.</p>
+              <div className="grid grid-cols-2 gap-2">
+                {LANGUAGE_OPTIONS.map((language) => (
+                  <label key={language} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${languages.includes(language) ? 'border-blue-700 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-700'}`}>
+                    <input data-testid={`kyc-language-${language.toLowerCase()}`} type="checkbox" checked={languages.includes(language)} onChange={(e) => setLanguages((current) => e.target.checked ? [...current, language] : current.filter((item) => item !== language))} />
+                    {language}
+                  </label>
+                ))}
+              </div>
+              {languages.length === 0 && <p className="text-xs text-amber-700 mt-2">Choose at least one language before submitting your doctor profile.</p>}
+            </Field>
+          )}
           <Button data-testid="kyc-save-basic" onClick={saveBasic} disabled={saving} variant="outline" className="w-full">{saving ? 'Saving...' : 'Save Basic Info'}</Button>
         </div>
 

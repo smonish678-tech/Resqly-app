@@ -43,12 +43,20 @@ export default function ProviderDashboard() {
     try {
       let location = {};
       if (status === 'available') {
-        if (!('geolocation' in navigator)) throw new Error('This device cannot provide location');
-        location = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
-          (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-          (err) => reject(new Error(err.message || 'Location permission is required to go available')),
-          { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
-        ));
+        if (!('geolocation' in navigator)) {
+          if (provider.category !== 'doctor') throw new Error('This device cannot provide location');
+        } else {
+          try {
+            location = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
+              (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+              (err) => reject(new Error(err.message || 'Location permission is required to go available')),
+              { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+            ));
+          } catch (locationError) {
+            if (provider.category !== 'doctor') throw locationError;
+            toast.message('Location unavailable. You can receive online consultations only until you enable location.');
+          }
+        }
       }
       const response = await api.patch('/providers/me/availability', { availability_status: status, ...location });
       setProvider({ ...provider, availability_status: response.data.availability_status, latitude: response.data.latitude, longitude: response.data.longitude });
@@ -126,6 +134,9 @@ export default function ProviderDashboard() {
           <div className="resqly-card divide-y">
             {(provider.category === 'pharmacy' || provider.category === 'lab_test') && (
               <Action testid="qa-marketplace" icon={<ClipboardList className="w-4 h-4 text-blue-600" />} label={provider.category === 'pharmacy' ? 'Pharmacy Requests' : 'Lab Requests'} onClick={() => navigate('/provider/marketplace')} />
+            )}
+            {provider.category === 'doctor' && (
+              <Action testid="qa-doctor-requests" icon={<ClipboardList className="w-4 h-4 text-blue-600" />} label="Doctor Consultation Requests" onClick={() => navigate('/provider/doctor-requests')} />
             )}
             <Action testid="qa-orders" icon={<ClipboardList className="w-4 h-4 text-blue-600" />} label="Orders" onClick={() => navigate('/provider/orders')} />
             <Action testid="qa-earnings" icon={<CircleDollarSign className="w-4 h-4 text-blue-600" />} label="Earnings" onClick={() => navigate('/provider/earnings')} />

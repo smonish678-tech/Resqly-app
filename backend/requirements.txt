@@ -13,3 +13,4 @@ python-multipart==0.0.30
 starlette==0.37.2
 supabase==2.9.1
 dnspython==2.8.0
+razorpay==1.4.2

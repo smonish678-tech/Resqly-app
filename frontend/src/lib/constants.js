@@ -57,7 +57,7 @@ export const SERVICE_LABELS = {
 
 export const CITIES = ['Bangalore', 'Mumbai', 'Delhi', 'Chennai', 'Hyderabad', 'Pune', 'Kolkata', 'Kochi', 'Ahmedabad', 'Jaipur'];
 export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
-export const LANGUAGE_OPTIONS = ['English', 'Kannada', 'Hindi', 'Tamil', 'Telugu', 'Malayalam'];
+export const LANGUAGE_OPTIONS = ['Arabic', 'Bengali', 'Chinese (Mandarin)', 'English', 'French', 'German', 'Gujarati', 'Hindi', 'Indonesian', 'Japanese', 'Kannada', 'Korean', 'Malayalam', 'Marathi', 'Odia', 'Persian', 'Portuguese', 'Punjabi', 'Russian', 'Spanish', 'Swahili', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Urdu', 'Vietnamese'];
 
 export const GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 export const MARITAL = ['Single', 'Married', 'Divorced', 'Widowed', 'Prefer not to say'];
