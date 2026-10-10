@@ -10,6 +10,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import asyncio
 import logging
+import secrets
 import uuid
 import random
 import jwt
@@ -1351,18 +1352,18 @@ def _doctor_prices():
 async def doctor_consultation_config():
     online, home = _doctor_prices()
     payment_configured = bool(os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET"))
-    # Fail closed until the native Agora bridge and secure RTC token endpoint are implemented and tested.
-    online_available = False
+    agora_configured = bool(os.environ.get("AGORA_APP_ID") and os.environ.get("AGORA_APP_CERTIFICATE"))
     home_available = payment_configured and home > 0
+    online_available = payment_configured and online > 0 and agora_configured
     return {
-        "available": home_available,
+        "available": home_available or online_available,
         "online_available": online_available,
         "home_visit_available": home_available,
         "online_price": online,
         "home_visit_price": home,
         "currency": "INR",
         "message": "" if home_available else "Secure home-visit checkout is not configured yet. Please try again later.",
-        "online_message": "Online video consultation is not enabled until secure Agora calling is connected and tested.",
+        "online_message": "" if online_available else "Online video consultation is not configured yet. Resqly needs Razorpay and Agora server credentials before it can accept payment.",
     }
 
 
@@ -1373,8 +1374,10 @@ async def create_doctor_payment_order(
 ):
     if payload.consultation_type not in ("online", "home_visit"):
         raise HTTPException(status_code=400, detail="Choose online consultation or home visit")
-    if payload.consultation_type == "online":
-        raise HTTPException(status_code=503, detail="Online video consultations are temporarily disabled until the Agora call engine and secure call-token service are connected. No payment or request was created.")
+    if payload.consultation_type == "online" and not (
+        os.environ.get("AGORA_APP_ID") and os.environ.get("AGORA_APP_CERTIFICATE")
+    ):
+        raise HTTPException(status_code=503, detail="Secure Agora calling is not configured. No payment or request was created.")
     problem = payload.problem.strip()
     languages = list(dict.fromkeys([x.strip() for x in payload.languages if isinstance(x, str) and x.strip()]))
     if len(problem) < 8 or len(problem) > 2000:
@@ -1571,6 +1574,128 @@ async def get_doctor_consultation(consultation_id: str, user: Dict[str, Any] = D
     return {"consultation": consultation}
 
 
+@api.get("/doctor-consultations/{consultation_id}/rtc-token")
+async def get_doctor_rtc_token(consultation_id: str, user: Dict[str, Any] = Depends(current_user)):
+    """Issue a short-lived AccessToken2 token only to the assigned patient or doctor."""
+    await _expire_unjoined_doctor_consultations()
+    consultation = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
+    if not consultation:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+    if user.get("role") == "consumer":
+        if consultation.get("user_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="You are not part of this consultation")
+        rtc_uid = consultation.get("patient_rtc_uid")
+        participant_role = "patient"
+    elif user.get("role") == "provider":
+        if consultation.get("provider_id") != user["id"] or user.get("category") != "doctor" or user.get("approval_status") != "approved":
+            raise HTTPException(status_code=403, detail="Only the assigned verified doctor can join this consultation")
+        rtc_uid = consultation.get("doctor_rtc_uid")
+        participant_role = "doctor"
+    else:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if consultation.get("consultation_type") != "online":
+        raise HTTPException(status_code=400, detail="This booking is an in-person home visit")
+    if consultation.get("status") not in ("accepted", "in_call"):
+        raise HTTPException(status_code=409, detail="The consultation is not ready to join")
+    if consultation.get("status") == "accepted":
+        deadline = consultation.get("join_deadline")
+        if not deadline or datetime.fromisoformat(deadline) <= datetime.now(timezone.utc):
+            await _expire_unjoined_doctor_consultations()
+            raise HTTPException(status_code=409, detail="The 5-minute join window has expired")
+    app_id = os.environ.get("AGORA_APP_ID", "").strip()
+    app_certificate = os.environ.get("AGORA_APP_CERTIFICATE", "").strip()
+    channel = consultation.get("rtc_channel")
+    if not app_id or not app_certificate:
+        raise HTTPException(status_code=503, detail="Agora token service is not configured")
+    if not channel or not rtc_uid:
+        raise HTTPException(status_code=409, detail="RTC room is not prepared for this consultation")
+    try:
+        from agora_token.RtcTokenBuilder2 import RtcTokenBuilder, Role_Publisher
+        token_ttl_seconds = 3600
+        token = RtcTokenBuilder.build_token_with_uid(
+            app_id,
+            app_certificate,
+            channel,
+            int(rtc_uid),
+            Role_Publisher,
+            token_ttl_seconds,
+            token_ttl_seconds,
+        )
+        if not token:
+            raise ValueError("Token builder returned an empty token")
+    except Exception:
+        logging.exception("Agora RTC token generation failed")
+        raise HTTPException(status_code=503, detail="Secure video calling could not be prepared. Please contact Resqly support.")
+    return {
+        "app_id": app_id,
+        "channel": channel,
+        "uid": int(rtc_uid),
+        "token": token,
+        "token_ttl_seconds": token_ttl_seconds,
+        "participant_role": participant_role,
+        "join_deadline": consultation.get("join_deadline"),
+        "consultation_status": consultation.get("status"),
+    }
+
+
+@api.post("/doctor-consultations/{consultation_id}/rtc/joined")
+async def mark_doctor_rtc_joined(consultation_id: str, user: Dict[str, Any] = Depends(current_user)):
+    consultation = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
+    if not consultation:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+    if user.get("role") == "consumer":
+        if consultation.get("user_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="You are not part of this consultation")
+        role = "patient"
+    elif user.get("role") == "provider":
+        if consultation.get("provider_id") != user["id"] or user.get("category") != "doctor" or user.get("approval_status") != "approved":
+            raise HTTPException(status_code=403, detail="Only the assigned verified doctor can join this consultation")
+        role = "doctor"
+    else:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if consultation.get("consultation_type") != "online" or consultation.get("status") not in ("accepted", "in_call"):
+        raise HTTPException(status_code=409, detail="Consultation is not ready for an RTC participant")
+    if consultation.get("status") == "accepted":
+        deadline = consultation.get("join_deadline")
+        if not deadline or datetime.fromisoformat(deadline) <= datetime.now(timezone.utc):
+            await _expire_unjoined_doctor_consultations()
+            raise HTTPException(status_code=409, detail="The 5-minute join window has expired")
+    await db.doctor_consultations.update_one(
+        {"id": consultation_id, "status": {"$in": ["accepted", "in_call"]}},
+        {"$addToSet": {"rtc_joined_roles": role}, "$set": {"last_rtc_joined_at": now_iso()}},
+    )
+    fresh = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
+    if set(fresh.get("rtc_joined_roles") or []) >= {"patient", "doctor"}:
+        await db.doctor_consultations.update_one(
+            {"id": consultation_id, "status": "accepted"},
+            {"$set": {"status": "in_call", "call_started_at": now_iso(), "updated_at": now_iso()}},
+        )
+        fresh = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
+    return {"status": fresh.get("status"), "both_participants_joined": fresh.get("status") == "in_call"}
+
+
+@api.post("/doctor-consultations/{consultation_id}/rtc/left")
+async def mark_doctor_rtc_left(consultation_id: str, user: Dict[str, Any] = Depends(current_user)):
+    consultation = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
+    if not consultation:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+    if user.get("role") == "consumer":
+        if consultation.get("user_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="You are not part of this consultation")
+        role = "patient"
+    elif user.get("role") == "provider":
+        if consultation.get("provider_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="You are not part of this consultation")
+        role = "doctor"
+    else:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await db.doctor_consultations.update_one(
+        {"id": consultation_id, "status": {"$in": ["accepted", "in_call"]}},
+        {"$addToSet": {"rtc_left_roles": role}, "$set": {"last_rtc_left_at": now_iso()}},
+    )
+    return {"success": True}
+
+
 @api.post("/doctor-consultations/{consultation_id}/cancel")
 async def cancel_doctor_consultation(consultation_id: str, user: Dict[str, Any] = Depends(require_role("consumer"))):
     consultation = await db.doctor_consultations.find_one(
@@ -1689,9 +1814,29 @@ async def accept_doctor_consultation(consultation_id: str, user: Dict[str, Any] 
         raise HTTPException(status_code=409, detail="You are no longer available for new requests")
     now = datetime.now(timezone.utc)
     deadline = (now + timedelta(minutes=5)).isoformat() if consultation.get("consultation_type") == "online" else None
+    accept_fields = {
+        "status": "accepted",
+        "provider_id": user["id"],
+        "doctor_name": user.get("name") or "Doctor",
+        "accepted_at": now.isoformat(),
+        "join_deadline": deadline,
+        "updated_at": now.isoformat(),
+    }
+    if consultation.get("consultation_type") == "online":
+        patient_uid = int(consultation.get("patient_rtc_uid") or secrets.randbelow(2**31 - 2) + 1)
+        doctor_uid = int(consultation.get("doctor_rtc_uid") or secrets.randbelow(2**31 - 2) + 1)
+        while doctor_uid == patient_uid:
+            doctor_uid = secrets.randbelow(2**31 - 2) + 1
+        accept_fields.update({
+            "rtc_channel": consultation.get("rtc_channel") or ("resqly_" + uuid.uuid4().hex),
+            "patient_rtc_uid": patient_uid,
+            "doctor_rtc_uid": doctor_uid,
+            "rtc_joined_roles": [],
+            "rtc_left_roles": [],
+        })
     accepted = await db.doctor_consultations.update_one(
         {"id": consultation_id, "status": "broadcasting", "expires_at": {"$gt": now_iso()}},
-        {"$set": {"status": "accepted", "provider_id": user["id"], "doctor_name": user.get("name") or "Doctor", "accepted_at": now.isoformat(), "join_deadline": deadline, "updated_at": now.isoformat()}},
+        {"$set": accept_fields},
     )
     if accepted.modified_count != 1:
         await db.providers.update_one({"id": user["id"], "active_consultation_id": consultation_id}, {"$set": {"availability_status": "available"}, "$unset": {"active_consultation_id": ""}})
