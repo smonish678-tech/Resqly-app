@@ -286,6 +286,30 @@ class AcceptQuotationRequest(BaseModel):
 class MarketplaceCancelRequest(BaseModel):
     reason: Optional[str] = None
 
+class DoctorConsultationPaymentOrder(BaseModel):
+    consultation_type: str
+    problem: str
+    languages: List[str]
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    address: Optional[str] = None
+
+
+class DoctorConsultationPaymentVerify(BaseModel):
+    consultation_id: str
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+class DoctorPrescriptionCreate(BaseModel):
+    consultation_id: str
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    medications: List[Dict[str, Any]] = Field(default_factory=list)
+    follow_up: Optional[str] = None
+
+
 class ProviderCategoryUpdate(BaseModel):
     category: str
 
@@ -1192,6 +1216,312 @@ async def my_reviews(user: Dict[str, Any] = Depends(require_role("provider"))):
     if reviews:
         avg = round(sum(r.get("rating", 0) for r in reviews) / len(reviews), 1)
     return {"reviews": reviews, "average": avg, "total": len(reviews)}
+
+
+# ---------------- Doctor consultations ----------------
+def _doctor_prices():
+    try:
+        online = int(os.environ.get("DOCTOR_ONLINE_PRICE_INR", "0"))
+        home = int(os.environ.get("DOCTOR_HOME_VISIT_PRICE_INR", "0"))
+    except ValueError:
+        online, home = 0, 0
+    return max(0, online), max(0, home)
+
+
+@api.get("/doctor-consultations/config")
+async def doctor_consultation_config():
+    online, home = _doctor_prices()
+    configured = bool(os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET") and online > 0 and home > 0)
+    return {
+        "available": configured,
+        "online_price": online,
+        "home_visit_price": home,
+        "currency": "INR",
+        "message": "" if configured else "Secure checkout is not configured yet. Please try again later.",
+    }
+
+
+@api.post("/doctor-consultations/payment-order")
+async def create_doctor_payment_order(
+    payload: DoctorConsultationPaymentOrder,
+    user: Dict[str, Any] = Depends(require_role("consumer")),
+):
+    if payload.consultation_type not in ("online", "home_visit"):
+        raise HTTPException(status_code=400, detail="Choose online consultation or home visit")
+    problem = payload.problem.strip()
+    languages = list(dict.fromkeys([x.strip() for x in payload.languages if isinstance(x, str) and x.strip()]))
+    if len(problem) < 8 or len(problem) > 2000:
+        raise HTTPException(status_code=400, detail="Describe the problem in 8 to 2000 characters")
+    if not languages:
+        raise HTTPException(status_code=400, detail="Choose at least one language")
+    if payload.consultation_type == "home_visit" and (payload.latitude is None or payload.longitude is None):
+        raise HTTPException(status_code=400, detail="Location is required for a home visit")
+    online_price, home_price = _doctor_prices()
+    price = online_price if payload.consultation_type == "online" else home_price
+    key_id = os.environ.get("RAZORPAY_KEY_ID", "")
+    key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+    if not key_id or not key_secret or price <= 0:
+        raise HTTPException(status_code=503, detail="Secure doctor payment is not configured. No payment or broadcast has occurred.")
+    try:
+        import razorpay
+        consultation_id = new_id()
+        receipt = ("doc" + consultation_id.replace("-", ""))[:40]
+        client = razorpay.Client(auth=(key_id, key_secret))
+        order = client.order.create(data={
+            "amount": price * 100,
+            "currency": "INR",
+            "receipt": receipt,
+            "notes": {"consultation_id": consultation_id, "consumer_id": user["id"], "consultation_type": payload.consultation_type},
+        })
+    except Exception:
+        logging.exception("Razorpay order creation failed for doctor consultation")
+        raise HTTPException(status_code=502, detail="Secure checkout could not be started. Please try again.")
+    consultation = {
+        "id": consultation_id,
+        "user_id": user["id"],
+        "customer_name": user.get("name") or "Patient",
+        "consultation_type": payload.consultation_type,
+        "problem": problem,
+        "languages": languages,
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "address": payload.address or user.get("location") or user.get("city") or "",
+        "amount": price,
+        "currency": "INR",
+        "payment_status": "pending",
+        "razorpay_order_id": order["id"],
+        "status": "payment_pending",
+        "created_at": now_iso(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+    }
+    await db.doctor_consultations.insert_one(consultation.copy())
+    return {
+        "consultation_id": consultation_id,
+        "razorpay_order_id": order["id"],
+        "amount": order["amount"],
+        "currency": order["currency"],
+        "checkout_key": key_id,
+    }
+
+
+@api.post("/doctor-consultations/payment-verify")
+async def verify_doctor_payment(
+    payload: DoctorConsultationPaymentVerify,
+    user: Dict[str, Any] = Depends(require_role("consumer")),
+):
+    consultation = await db.doctor_consultations.find_one(
+        {"id": payload.consultation_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    if not consultation:
+        raise HTTPException(status_code=404, detail="Consultation checkout not found")
+    if consultation.get("status") == "broadcasting":
+        return {"consultation": consultation}
+    if consultation.get("status") != "payment_pending" or consultation.get("razorpay_order_id") != payload.razorpay_order_id:
+        raise HTTPException(status_code=409, detail="This checkout is no longer valid")
+    key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+    if not key_secret:
+        raise HTTPException(status_code=503, detail="Payment verification is not configured")
+    try:
+        import hmac
+        import hashlib
+        expected = hmac.new(
+            key_secret.encode("utf-8"),
+            (payload.razorpay_order_id + "|" + payload.razorpay_payment_id).encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected, payload.razorpay_signature):
+            raise HTTPException(status_code=400, detail="Payment signature could not be verified")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Payment verification failed")
+    online = consultation.get("consultation_type") == "online"
+    candidate_query = {
+        "category": "doctor",
+        "approval_status": "approved",
+        "availability_status": "available",
+        "languages": {"$in": consultation["languages"]},
+    }
+    if not online:
+        candidate_query.update({"latitude": {"$ne": None}, "longitude": {"$ne": None}})
+    candidates = await db.providers.find(candidate_query, {"_id": 0, "id": 1, "latitude": 1, "longitude": 1}).to_list(1000)
+    if not online:
+        candidates = [
+            p for p in candidates
+            if _distance_km(consultation["latitude"], consultation["longitude"], p.get("latitude"), p.get("longitude")) is not None
+            and _distance_km(consultation["latitude"], consultation["longitude"], p.get("latitude"), p.get("longitude")) <= 25
+        ]
+    now = now_iso()
+    update = {
+        "payment_status": "paid",
+        "razorpay_payment_id": payload.razorpay_payment_id,
+        "paid_at": now,
+        "status": "broadcasting",
+        "candidate_count": len(candidates),
+        "broadcasted_at": now,
+        "updated_at": now,
+        "join_window_seconds": 300,
+    }
+    result = await db.doctor_consultations.update_one(
+        {"id": consultation["id"], "user_id": user["id"], "status": "payment_pending"},
+        {"$set": update},
+    )
+    if result.modified_count != 1:
+        fresh = await db.doctor_consultations.find_one({"id": consultation["id"], "user_id": user["id"]}, {"_id": 0})
+        if fresh and fresh.get("status") == "broadcasting":
+            return {"consultation": fresh}
+        raise HTTPException(status_code=409, detail="This consultation has already changed")
+    await db.notifications.insert_one({
+        "id": new_id(), "user_id": user["id"], "title": "Doctor request sent",
+        "message": "Your payment is verified and eligible doctors are being notified.",
+        "type": "doctor_consultation", "related_id": consultation["id"], "read": False, "created_at": now,
+    })
+    fresh = await db.doctor_consultations.find_one({"id": consultation["id"], "user_id": user["id"]}, {"_id": 0})
+    return {"consultation": fresh}
+
+
+@api.get("/doctor-consultations/{consultation_id}")
+async def get_doctor_consultation(consultation_id: str, user: Dict[str, Any] = Depends(current_user)):
+    consultation = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
+    if not consultation:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+    if user.get("role") == "consumer" and consultation.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if user.get("role") == "provider" and consultation.get("provider_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if user.get("role") not in ("consumer", "provider"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return {"consultation": consultation}
+
+
+@api.post("/doctor-consultations/{consultation_id}/cancel")
+async def cancel_doctor_consultation(consultation_id: str, user: Dict[str, Any] = Depends(require_role("consumer"))):
+    result = await db.doctor_consultations.update_one(
+        {"id": consultation_id, "user_id": user["id"], "status": {"$in": ["payment_pending", "broadcasting"]}},
+        {"$set": {"status": "cancelled", "cancelled_at": now_iso(), "updated_at": now_iso()}},
+    )
+    if result.modified_count != 1:
+        raise HTTPException(status_code=409, detail="This consultation can no longer be cancelled")
+    consultation = await db.doctor_consultations.find_one({"id": consultation_id, "user_id": user["id"]}, {"_id": 0})
+    return {"consultation": consultation}
+
+
+@api.get("/providers/me/doctor-consultations")
+async def doctor_consultation_requests(user: Dict[str, Any] = Depends(require_role("provider"))):
+    if user.get("category") != "doctor" or user.get("approval_status") != "approved" or user.get("availability_status") != "available":
+        return {"requests": []}
+    query = {
+        "status": "broadcasting",
+        "languages": {"$in": user.get("languages") or []},
+        "expires_at": {"$gt": now_iso()},
+    }
+    cursor = db.doctor_consultations.find(query, {"_id": 0, "razorpay_order_id": 0, "razorpay_payment_id": 0, "user_id": 0}).sort("created_at", 1)
+    requests = await cursor.to_list(100)
+    if user.get("latitude") is None or user.get("longitude") is None:
+        requests = [r for r in requests if r.get("consultation_type") == "online"]
+    else:
+        filtered = []
+        for r in requests:
+            if r.get("consultation_type") == "online":
+                filtered.append(r)
+            elif r.get("latitude") is not None and r.get("longitude") is not None:
+                distance = _distance_km(user["latitude"], user["longitude"], r["latitude"], r["longitude"])
+                if distance is not None and distance <= 25:
+                    r["distance_km"] = round(distance, 1)
+                    filtered.append(r)
+        requests = filtered
+    return {"requests": requests}
+
+
+@api.post("/providers/me/doctor-consultations/{consultation_id}/accept")
+async def accept_doctor_consultation(consultation_id: str, user: Dict[str, Any] = Depends(require_role("provider"))):
+    if user.get("category") != "doctor" or user.get("approval_status") != "approved" or user.get("availability_status") != "available":
+        raise HTTPException(status_code=403, detail="Only approved, available doctors can accept requests")
+    consultation = await db.doctor_consultations.find_one({"id": consultation_id, "status": "broadcasting"}, {"_id": 0})
+    if not consultation:
+        raise HTTPException(status_code=409, detail="Another doctor accepted this request, or it expired")
+    if not set(user.get("languages") or []).intersection(consultation.get("languages") or []):
+        raise HTTPException(status_code=403, detail="Your verified languages do not match this patient")
+    if consultation.get("consultation_type") == "home_visit":
+        distance = _distance_km(user.get("latitude"), user.get("longitude"), consultation.get("latitude"), consultation.get("longitude"))
+        if distance is None or distance > 25:
+            raise HTTPException(status_code=403, detail="This home visit is outside your service radius")
+    # Reserve provider first so a doctor cannot accept two simultaneous requests.
+    reserve = await db.providers.update_one(
+        {"id": user["id"], "approval_status": "approved", "availability_status": "available"},
+        {"$set": {"availability_status": "busy", "active_consultation_id": consultation_id}},
+    )
+    if reserve.modified_count != 1:
+        raise HTTPException(status_code=409, detail="You are no longer available for new requests")
+    now = datetime.now(timezone.utc)
+    deadline = (now + timedelta(minutes=5)).isoformat()
+    accepted = await db.doctor_consultations.update_one(
+        {"id": consultation_id, "status": "broadcasting"},
+        {"$set": {"status": "accepted", "provider_id": user["id"], "doctor_name": user.get("name") or "Doctor", "accepted_at": now.isoformat(), "join_deadline": deadline, "updated_at": now.isoformat()}},
+    )
+    if accepted.modified_count != 1:
+        await db.providers.update_one({"id": user["id"], "active_consultation_id": consultation_id}, {"$set": {"availability_status": "available"}, "$unset": {"active_consultation_id": ""}})
+        raise HTTPException(status_code=409, detail="Another doctor accepted this request")
+    await db.notifications.insert_one({
+        "id": new_id(), "user_id": consultation["user_id"], "title": "A doctor accepted",
+        "message": "Your doctor accepted. Join the consultation within 5 minutes.",
+        "type": "doctor_consultation", "related_id": consultation_id, "read": False, "created_at": now.isoformat(),
+    })
+    fresh = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
+    return {"consultation": fresh}
+
+
+@api.post("/doctor-consultations/{consultation_id}/prescription")
+async def write_doctor_prescription(
+    consultation_id: str,
+    payload: DoctorPrescriptionCreate,
+    user: Dict[str, Any] = Depends(require_role("provider")),
+):
+    consultation = await db.doctor_consultations.find_one({
+        "id": consultation_id, "provider_id": user["id"], "status": {"$in": ["accepted", "in_call", "completed"]}
+    }, {"_id": 0})
+    if not consultation or user.get("category") != "doctor" or user.get("approval_status") != "approved":
+        raise HTTPException(status_code=403, detail="Only the assigned verified doctor can write this prescription")
+    meds = []
+    for med in payload.medications:
+        name = str(med.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Every medication needs a name")
+        meds.append({"name": name, "dosage": str(med.get("dosage") or "").strip(), "frequency": str(med.get("frequency") or "").strip(), "duration": str(med.get("duration") or "").strip()})
+    existing = await db.prescriptions.find_one({"consultation_id": consultation_id}, {"_id": 0})
+    prescription = {
+        "id": existing.get("id") if existing else new_id(),
+        "user_id": consultation["user_id"],
+        "consultation_id": consultation_id,
+        "doctor_name": user.get("name") or "Doctor",
+        "title": (payload.title or "Doctor consultation").strip(),
+        "notes": (payload.notes or "").strip(),
+        "medications": meds,
+        "follow_up": (payload.follow_up or "").strip(),
+        "date": now_iso()[:10],
+        "created_at": existing.get("created_at") if existing else now_iso(),
+        "source": "doctor_consultation",
+    }
+    await db.prescriptions.update_one({"consultation_id": consultation_id}, {"$set": prescription}, upsert=True)
+    return {"prescription": prescription}
+
+
+@api.post("/doctor-consultations/{consultation_id}/complete")
+async def complete_doctor_consultation(consultation_id: str, user: Dict[str, Any] = Depends(current_user)):
+    if user.get("role") not in ("consumer", "provider"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    query = {"id": consultation_id, "status": {"$in": ["accepted", "in_call"]}}
+    if user["role"] == "consumer":
+        query["user_id"] = user["id"]
+    else:
+        query["provider_id"] = user["id"]
+    result = await db.doctor_consultations.update_one(query, {"$set": {"status": "completed", "completed_at": now_iso(), "updated_at": now_iso()}})
+    if result.modified_count != 1:
+        raise HTTPException(status_code=409, detail="Consultation is not active")
+    if user["role"] == "provider":
+        await db.providers.update_one({"id": user["id"], "active_consultation_id": consultation_id}, {"$set": {"availability_status": "available"}, "$unset": {"active_consultation_id": ""}})
+    consultation = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
+    return {"consultation": consultation}
 
 
 # ---------------- Marketplace: Pharmacy + Lab ----------------
