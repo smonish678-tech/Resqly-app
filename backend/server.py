@@ -1568,7 +1568,7 @@ async def doctor_consultation_requests(user: Dict[str, Any] = Depends(require_ro
 async def accept_doctor_consultation(consultation_id: str, user: Dict[str, Any] = Depends(require_role("provider"))):
     if user.get("category") != "doctor" or user.get("approval_status") != "approved" or user.get("availability_status") != "available":
         raise HTTPException(status_code=403, detail="Only approved, available doctors can accept requests")
-    consultation = await db.doctor_consultations.find_one({"id": consultation_id, "status": "broadcasting"}, {"_id": 0})
+    consultation = await db.doctor_consultations.find_one({"id": consultation_id, "status": "broadcasting", "expires_at": {"$gt": now_iso()}}, {"_id": 0})
     if not consultation:
         raise HTTPException(status_code=409, detail="Another doctor accepted this request, or it expired")
     if not set(user.get("languages") or []).intersection(consultation.get("languages") or []):
@@ -1587,7 +1587,7 @@ async def accept_doctor_consultation(consultation_id: str, user: Dict[str, Any] 
     now = datetime.now(timezone.utc)
     deadline = (now + timedelta(minutes=5)).isoformat()
     accepted = await db.doctor_consultations.update_one(
-        {"id": consultation_id, "status": "broadcasting"},
+        {"id": consultation_id, "status": "broadcasting", "expires_at": {"$gt": now_iso()}},
         {"$set": {"status": "accepted", "provider_id": user["id"], "doctor_name": user.get("name") or "Doctor", "accepted_at": now.isoformat(), "join_deadline": deadline, "updated_at": now.isoformat()}},
     )
     if accepted.modified_count != 1:
