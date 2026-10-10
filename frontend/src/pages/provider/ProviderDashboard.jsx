@@ -127,6 +127,9 @@ export default function ProviderDashboard() {
             {(provider.category === 'pharmacy' || provider.category === 'lab_test') && (
               <Action testid="qa-marketplace" icon={<ClipboardList className="w-4 h-4 text-blue-600" />} label={provider.category === 'pharmacy' ? 'Pharmacy Requests' : 'Lab Requests'} onClick={() => navigate('/provider/marketplace')} />
             )}
+            {provider.category === 'doctor' && (
+              <Action testid="qa-doctor-requests" icon={<ClipboardList className="w-4 h-4 text-blue-600" />} label="Doctor Consultation Requests" onClick={() => navigate('/provider/doctor-requests')} />
+            )}
             <Action testid="qa-orders" icon={<ClipboardList className="w-4 h-4 text-blue-600" />} label="Orders" onClick={() => navigate('/provider/orders')} />
             <Action testid="qa-earnings" icon={<CircleDollarSign className="w-4 h-4 text-blue-600" />} label="Earnings" onClick={() => navigate('/provider/earnings')} />
             <Action testid="qa-reviews" icon={<Star className="w-4 h-4 text-amber-500" />} label="Reviews" onClick={() => navigate('/provider/reviews')} />
