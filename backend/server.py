@@ -1347,13 +1347,19 @@ def _doctor_prices():
 @api.get("/doctor-consultations/config")
 async def doctor_consultation_config():
     online, home = _doctor_prices()
-    configured = bool(os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET") and online > 0 and home > 0)
+    payment_configured = bool(os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET"))
+    # Fail closed until the native Agora bridge and secure RTC token endpoint are implemented and tested.
+    online_available = False
+    home_available = payment_configured and home > 0
     return {
-        "available": configured,
+        "available": home_available,
+        "online_available": online_available,
+        "home_visit_available": home_available,
         "online_price": online,
         "home_visit_price": home,
         "currency": "INR",
-        "message": "" if configured else "Secure checkout is not configured yet. Please try again later.",
+        "message": "" if home_available else "Secure home-visit checkout is not configured yet. Please try again later.",
+        "online_message": "Online video consultation is not enabled until secure Agora calling is connected and tested.",
     }
 
 
@@ -1364,6 +1370,8 @@ async def create_doctor_payment_order(
 ):
     if payload.consultation_type not in ("online", "home_visit"):
         raise HTTPException(status_code=400, detail="Choose online consultation or home visit")
+    if payload.consultation_type == "online":
+        raise HTTPException(status_code=503, detail="Online video consultations are temporarily disabled until the Agora call engine and secure call-token service are connected. No payment or request was created.")
     problem = payload.problem.strip()
     languages = list(dict.fromkeys([x.strip() for x in payload.languages if isinstance(x, str) and x.strip()]))
     if len(problem) < 8 or len(problem) > 2000:
