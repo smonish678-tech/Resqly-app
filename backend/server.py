@@ -1778,15 +1778,29 @@ async def cancel_doctor_consultation(consultation_id: str, user: Dict[str, Any] 
     )
     if not consultation:
         raise HTTPException(status_code=404, detail="Consultation not found")
+    online_not_joined = (
+        consultation.get("consultation_type") == "online"
+        and consultation.get("status") == "accepted"
+        and not (consultation.get("rtc_joined_roles") or [])
+    )
     allowed = consultation.get("status") in ("payment_pending", "broadcasting")
     allowed = allowed or (
         consultation.get("consultation_type") == "home_visit"
         and consultation.get("status") == "accepted"
-    )
+    ) or online_not_joined
     if not allowed:
-        raise HTTPException(status_code=409, detail="This consultation can no longer be cancelled")
+        raise HTTPException(status_code=409, detail="This consultation can no longer be cancelled after the call or visit has started")
+    cancel_query = {
+        "id": consultation_id,
+        "user_id": user["id"],
+        "status": consultation.get("status"),
+    }
+    # The no-join condition is part of the database write to close the race where
+    # the patient cancels at the same time the doctor joins the RTC channel.
+    if online_not_joined:
+        cancel_query["rtc_joined_roles"] = {"$nin": ["patient", "doctor"]}
     result = await db.doctor_consultations.update_one(
-        {"id": consultation_id, "user_id": user["id"], "status": consultation.get("status")},
+        cancel_query,
         {"$set": {"status": "cancelled", "cancelled_at": now_iso(), "updated_at": now_iso()}},
     )
     if result.modified_count != 1:
