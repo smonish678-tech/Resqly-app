@@ -6,7 +6,7 @@
 - Patients describe the concern and select one or more languages. Online requests are matched globally by language; home visits additionally require patient location and a 25 km radius.
 - Doctor KYC collects languages; the backend rejects doctor KYC submission without at least one language.
 - Home-visit checkout is server-created with Razorpay. A request is not broadcast until the payment signature, order ID, captured state and amount are verified server-side.
-- Online video checkout is intentionally disabled until the native Agora bridge and secure RTC token service are connected and tested; the backend rejects direct API attempts too.
+- The native Android Agora room, server-issued short-lived RTC token endpoint, participant join/leave tracking, and five-minute join window are implemented in this branch. Online checkout still fails closed unless the backend has Agora App ID + App Certificate, Razorpay credentials, and a positive price configured.
 - Eligible doctors must be approved, online/available, and language-matched. A home visit also requires a recent location and distance within 25 km.
 - Acceptance reserves the doctor as busy before assigning the request, preventing the same doctor from accepting two simultaneous requests. An active consultation prevents the doctor switching back to Available.
 - Online requests record and display a five-minute join deadline; home visits do not use a video timer. The assigned doctor starts a home visit before writing its prescription. Online prescriptions remain gated until a real RTC call is marked active. Prescriptions are stored in the existing consumer collection; medicine and follow-up details render in RX.
@@ -18,10 +18,12 @@ For home-visit checkout, set these secrets/configuration values in the backend h
 
 - `RAZORPAY_KEY_ID`
 - `RAZORPAY_KEY_SECRET`
-- `DOCTOR_ONLINE_PRICE_INR` (positive integer, INR; configured for future use, but online checkout remains disabled until Agora RTC is ready)
+- `DOCTOR_ONLINE_PRICE_INR` (positive integer, INR)
 - `DOCTOR_HOME_VISIT_PRICE_INR` (positive integer, INR)
+- `AGORA_APP_ID`
+- `AGORA_APP_CERTIFICATE` (backend secret only; never expose it to the app)
 
-If payment credentials or the home-visit price are missing, home-visit checkout fails closed. Online checkout stays disabled even if its price is set, until Agora is integrated. This prevents charging patients for a call that cannot actually connect. Do not use production payment credentials for local testing.
+If payment credentials/prices are missing, checkout fails closed. Online checkout also requires both Agora server credentials. The app never contains the App Certificate; Android obtains only a short-lived token for the assigned patient/doctor. Do not use production payment credentials for local testing.
 
 ## Current customer/provider workflow
 
@@ -33,9 +35,9 @@ If payment credentials or the home-visit price are missing, home-visit checkout 
 6. For home visits, the doctor starts the visit, writes the prescription and marks the visit complete. Online prescriptions are blocked until RTC is genuinely active.
 7. Completing the visit releases the assigned doctor back to Available. If a paid request expires or an online join window expires, the backend attempts a refund and notifies the patient; failed refunds are marked for support follow-up.
 
-## Critical launch blocker: RTC video is not yet operational
+## Verification still required before live patient care
 
-The consultation room deliberately shows a safety gate rather than pretending a call is connected. Online checkout is disabled until native Agora media, a secure join-token service, participant join acknowledgements and two-device testing are complete. Five-minute/no-acceptance refund cleanup exists in code but still needs payment sandbox and race-condition testing. Do not use this build for live patient care until those items are completed and verified.
+The native Agora Android room and server token endpoint are implemented, and a CI debug APK build is being verified. Actual calls still need to be tested on two Android devices with a real Agora project and server secrets; RTC credentials, camera/mic permission handling, network recovery, token refresh and both-side leave/rejoin must be verified before charging patients for online care. Five-minute/no-acceptance refund cleanup exists in code but still needs Razorpay sandbox and concurrency/race-condition testing. Do not use this build for live patient care until those items are completed and verified.
 
 ### Agora implementation gate
 
@@ -51,12 +53,12 @@ Target: native Android Kotlin RTC SDK integrated into the existing Capacitor app
 
 ## Verification still required
 
-- [ ] Frontend production build passes.
-- [ ] Android Gradle debug build passes.
+- [x] Frontend production build passes in GitHub Actions.
+- [ ] Android Gradle debug build passes in GitHub Actions.
 - [ ] Test edge-to-edge on Android 13 and Android 15+.
 - [ ] Razorpay test payment: failed, dismissed, captured, replayed signature, mismatched amount and duplicate verification.
 - [ ] Concurrent doctor acceptance test; busy/offline doctors receive no new requests.
-- [ ] Agora CLI RTC doctor passes.
+- [ ] In an authenticated Agora CLI environment, run `agora project env --json` and `agora project doctor --feature rtc --json` for the selected project.
 - [ ] Two-device audio/video, mic/camera controls, leave/rejoin, permissions denied, network interruption and token expiry.
 - [ ] Prescription access-control test and patient RX display test.
 - [ ] Verify the implemented refund/no-show behavior in Razorpay sandbox, including concurrent expiry/refund attempts.

@@ -43,6 +43,7 @@ export default function DoctorConsultation() {
   const [address, setAddress] = useState(me?.location || '');
   const [config, setConfig] = useState(null);
   const [request, setRequest] = useState(null);
+  const [restoring, setRestoring] = useState(true);
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -54,6 +55,26 @@ export default function DoctorConsultation() {
 
   useEffect(() => {
     api.get('/doctor-consultations/config').then(({ data }) => setConfig(data)).catch(() => setConfig({ available: false, home_visit_available: false, online_available: false, message: 'Secure home-visit checkout is not configured yet. Please try again shortly.', online_message: 'Online video consultation is disabled until secure Agora calling is connected and tested.' }));
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    api.get('/users/me/doctor-consultations/active')
+      .then(({ data }) => {
+        if (!mounted || !data.consultation) return;
+        const active = data.consultation;
+        setRequest(active);
+        setMode(active.consultation_type || 'online');
+        setProblem(active.problem || '');
+        setLanguages(active.languages || []);
+        setAddress(active.address || '');
+        if (active.latitude != null && active.longitude != null) {
+          setCoords({ latitude: active.latitude, longitude: active.longitude });
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (mounted) setRestoring(false); });
+    return () => { mounted = false; };
   }, []);
 
   useEffect(() => {
@@ -154,6 +175,12 @@ export default function DoctorConsultation() {
 
   const minutesLeft = request?.join_deadline ? Math.max(0, Math.ceil((new Date(request.join_deadline).getTime() - now) / 1000)) : 0;
 
+  if (restoring) return (
+    <MobileShell title="Doctors">
+      <div className="px-5 py-16 text-center text-sm text-slate-500">Checking your active consultation…</div>
+    </MobileShell>
+  );
+
   if (request) return (
     <MobileShell title="Doctor consultation">
       <div className="px-5 py-5 pb-10">
@@ -161,14 +188,14 @@ export default function DoctorConsultation() {
           <div className="mx-auto w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center">
             {request.status === 'accepted' ? <Video className="w-7 h-7 text-blue-700" /> : request.status === 'completed' ? <CheckCircle2 className="w-7 h-7 text-emerald-600" /> : <Search className="w-7 h-7 text-blue-700" />}
           </div>
-          <h2 className="text-xl font-bold text-slate-900 mt-3">{request.status === 'broadcasting' ? 'Finding your doctor' : request.status === 'accepted' ? (request.consultation_type === 'home_visit' ? 'Doctor accepted your home visit' : 'Your doctor is ready') : request.status === 'completed' ? 'Consultation completed' : request.status === 'refunded_no_doctor' ? 'No doctor available — refund started' : request.status === 'refunded_no_show' ? 'Join window expired — refund started' : request.status === 'refund_pending' ? 'Refund needs support follow-up' : request.status === 'cancelled' ? 'Consultation cancelled' : request.status.replaceAll('_', ' ')}</h2>
-          <p className="text-sm text-slate-500 mt-1">{request.status === 'broadcasting' ? 'Your paid request is being shown to eligible doctors who are available and speak your selected languages.' : request.status === 'accepted' ? (request.consultation_type === 'home_visit' ? 'Your doctor has accepted and received your location. Keep your phone available for visit coordination.' : 'Both you and your doctor must join before the timer ends.') : request.status === 'completed' ? 'Your prescription will be available in the Prescriptions tab.' : request.status === 'refunded_no_doctor' ? 'No eligible doctor was available. Resqly has requested a refund to the original payment method.' : request.status === 'refunded_no_show' ? 'The five-minute join window expired. A refund has been requested to your original payment method.' : request.status === 'refund_pending' ? 'The automatic refund did not complete. Please contact Resqly support and quote this consultation.' : request.status === 'cancelled' ? (request.refund_status === 'refunded' ? 'Your cancellation was processed and a refund was requested to the original payment method.' : 'Your consultation was cancelled.') : 'You can return to the doctor service when you are ready.'}</p>
+          <h2 className="text-xl font-bold text-slate-900 mt-3">{request.status === 'broadcasting' ? 'Finding your doctor' : request.status === 'accepted' ? (request.consultation_type === 'home_visit' ? 'Doctor accepted your home visit' : 'Your doctor is ready') : request.status === 'completed' ? 'Consultation completed' : request.status === 'refunded_no_doctor' ? 'No doctor available — refund started' : request.status === 'refunded_no_show' ? 'Join window expired — refund started' : request.status === 'refund_pending' ? 'Refund needs support follow-up' : request.status === 'payment_pending' ? 'Payment confirmation pending' : request.status === 'payment_expiring' || request.status === 'refund_processing' ? 'Checking payment status' : request.status === 'payment_expired' ? 'Checkout expired' : request.status === 'refunded_abandoned_checkout' ? 'Interrupted checkout refunded' : request.status === 'cancelled' ? 'Consultation cancelled' : request.status.replaceAll('_', ' ')}</h2>
+          <p className="text-sm text-slate-500 mt-1">{request.status === 'broadcasting' ? 'Your paid request is being shown to eligible doctors who are available and speak your selected languages.' : request.status === 'accepted' ? (request.consultation_type === 'home_visit' ? 'Your doctor has accepted and received your location. Keep your phone available for visit coordination.' : 'Both you and your doctor must join before the timer ends.') : request.status === 'completed' ? 'Your prescription will be available in the Prescriptions tab.' : request.status === 'refunded_no_doctor' ? 'No eligible doctor was available. Resqly has requested a refund to the original payment method.' : request.status === 'refunded_no_show' ? 'The five-minute join window expired. A refund has been requested to your original payment method.' : request.status === 'refund_pending' ? 'The automatic refund did not complete. Please contact Resqly support and quote this consultation.' : request.status === 'payment_pending' || request.status === 'payment_expiring' ? 'Resqly is reconciling the checkout result. Please do not pay again; this screen will update when the payment check finishes.' : request.status === 'refund_processing' ? 'Resqly is checking the payment and refund status. Please wait before starting another consultation.' : request.status === 'payment_expired' ? 'No captured payment was found for this checkout. You can try a new request.' : request.status === 'refunded_abandoned_checkout' ? 'Your checkout was interrupted after payment, so Resqly requested a refund for the captured amount.' : request.status === 'cancelled' ? (request.refund_status === 'refunded' ? 'Your cancellation was processed and a refund was requested to the original payment method.' : 'Your consultation was cancelled.') : 'You can return to the doctor service when you are ready.'}</p>
           {request.status === 'accepted' && request.consultation_type === 'online' && <div className="my-5 rounded-2xl bg-blue-50 p-4"><div className="text-xs text-blue-700 font-semibold">TIME TO JOIN</div><div className="text-4xl font-bold text-blue-900 tabular-nums mt-1">{String(Math.floor(minutesLeft / 60)).padStart(2, '0')}:{String(minutesLeft % 60).padStart(2, '0')}</div><p className="text-xs text-blue-800 mt-1">5-minute join window</p></div>}
           {request.doctor_name && <div className="mt-4 text-left rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">Doctor</div><div className="font-semibold text-slate-900">{request.doctor_name}</div></div>}
           {['accepted', 'in_call'].includes(request.status) && request.consultation_type === 'online' && (request.status === 'in_call' || minutesLeft > 0) && <Button onClick={() => navigate('/consumer/doctor-call/' + request.id)} className="w-full mt-4 bg-blue-700 hover:bg-blue-800"><Video className="w-4 h-4 mr-2" /> {request.status === 'in_call' ? 'Rejoin video call' : 'Get into video call'}</Button>}
           {(['broadcasting', 'payment_verified'].includes(request.status) || (request.consultation_type === 'home_visit' && request.status === 'accepted')) && <Button variant="outline" onClick={cancel} className="w-full mt-4">Cancel request</Button>}
           <Button variant="ghost" onClick={() => navigate('/consumer/prescriptions')} className="w-full mt-2">Open Prescriptions</Button>
-          <Button variant="ghost" onClick={() => { setRequest(null); setProblem(''); setLanguages([]); }} className="w-full">Back to doctor options</Button>
+          {['completed', 'cancelled', 'refunded_no_doctor', 'refunded_no_show', 'refunded_abandoned_checkout', 'payment_expired'].includes(request.status) && <Button variant="ghost" onClick={() => { setRequest(null); setProblem(''); setLanguages([]); }} className="w-full">Back to doctor options</Button>}
         </div>
       </div>
     </MobileShell>
@@ -200,7 +227,7 @@ export default function DoctorConsultation() {
           {!canCheckout && <div className="mt-4 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" /><p className="text-xs text-amber-900">{unavailableMessage || 'Checking service availability…'}</p></div>}
           {canCheckout && <div className="mt-4 rounded-xl border border-slate-200 p-3"><div className="flex items-center justify-between"><span className="text-sm text-slate-600">{mode === 'online' ? 'Online consultation' : 'Doctor home visit'}</span><span className="font-bold text-slate-900">₹{mode === 'online' ? config.online_price : config.home_visit_price}</span></div><p className="text-[11px] text-slate-500 mt-1">Final price is shown before payment. Your request is broadcast only after payment verification.</p></div>}
           <Button onClick={submit} disabled={loading || !canCheckout} className="w-full mt-4 bg-blue-700 hover:bg-blue-800">{loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Preparing secure checkout…</> : canCheckout ? 'Continue to secure payment' : 'Not available yet'}</Button>
-          <p className="text-[10px] text-slate-400 text-center mt-3">This service does not replace emergency care. Doctors must be verified before they receive requests.</p>
+          <p className="text-[10px] text-slate-500 text-center mt-3">Before payment: your concern and selected languages are shared with eligible verified doctors to find a match. A home-visit address is shared with the assigned doctor only. This service does not replace emergency care.</p>
         </div>
       </div>
     </MobileShell>

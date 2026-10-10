@@ -215,6 +215,8 @@ class AgoraCallActivity : AppCompatActivity() {
 
         val localPreview = SurfaceView(this).apply {
             setBackgroundColor(Color.rgb(35, 47, 63))
+            // Keep the local mini-preview above the full-screen remote SurfaceView.
+            setZOrderMediaOverlay(true)
             elevation = dp(10).toFloat()
         }
         localSurface = localPreview

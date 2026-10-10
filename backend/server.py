@@ -1447,6 +1447,15 @@ async def create_doctor_payment_order(
 ):
     if payload.consultation_type not in ("online", "home_visit"):
         raise HTTPException(status_code=400, detail="Choose online consultation or home visit")
+    active_consultation = await db.doctor_consultations.find_one({
+        "user_id": user["id"],
+        "status": {"$in": ["payment_pending", "payment_expiring", "broadcasting", "accepted", "in_call", "in_progress", "refund_processing", "refund_pending"]},
+    }, {"_id": 0, "id": 1, "status": 1})
+    if active_consultation:
+        raise HTTPException(
+            status_code=409,
+            detail="You already have a doctor consultation that is active or needs payment review. Reopen Doctors in Resqly to continue it.",
+        )
     if payload.consultation_type == "online" and not (
         os.environ.get("AGORA_APP_ID") and os.environ.get("AGORA_APP_CERTIFICATE")
     ):
@@ -1613,6 +1622,7 @@ async def verify_doctor_payment(
         "status": "broadcasting",
         "candidate_count": len(candidates),
         "broadcasted_at": now,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
         "updated_at": now,
         "join_window_seconds": 300,
     }
@@ -1646,6 +1656,37 @@ async def get_doctor_consultation(consultation_id: str, user: Dict[str, Any] = D
         raise HTTPException(status_code=403, detail="Forbidden")
     if user.get("role") not in ("consumer", "provider"):
         raise HTTPException(status_code=403, detail="Forbidden")
+    # Keep payment identifiers, participant UIDs and room metadata server-side.
+    public_view = consultation.copy()
+    for private_key in (
+        "user_id", "provider_id", "razorpay_order_id", "razorpay_payment_id",
+        "patient_rtc_uid", "doctor_rtc_uid", "rtc_channel",
+        "rtc_joined_roles", "rtc_left_roles",
+    ):
+        public_view.pop(private_key, None)
+    return {"consultation": public_view}
+
+
+@api.get("/users/me/doctor-consultations/active")
+async def get_active_doctor_consultation(user: Dict[str, Any] = Depends(require_role("consumer"))):
+    await _expire_unjoined_doctor_consultations()
+    cursor = db.doctor_consultations.find(
+        {
+            "user_id": user["id"],
+            "status": {"$in": ["payment_pending", "payment_expiring", "broadcasting", "accepted", "in_call", "in_progress", "refund_processing", "refund_pending"]},
+        },
+        {"_id": 0},
+    ).sort("created_at", -1)
+    items = await cursor.to_list(1)
+    if not items:
+        return {"consultation": None}
+    consultation = items[0]
+    for private_key in (
+        "user_id", "provider_id", "razorpay_order_id", "razorpay_payment_id",
+        "patient_rtc_uid", "doctor_rtc_uid", "rtc_channel",
+        "rtc_joined_roles", "rtc_left_roles",
+    ):
+        consultation.pop(private_key, None)
     return {"consultation": consultation}
 
 
@@ -1932,7 +1973,11 @@ async def accept_doctor_consultation(consultation_id: str, user: Dict[str, Any] 
         raise HTTPException(status_code=409, detail="Another doctor accepted this request")
     await db.notifications.insert_one({
         "id": new_id(), "user_id": consultation["user_id"], "title": "A doctor accepted",
-        "message": "Your doctor accepted. Join the consultation within 5 minutes.",
+        "message": (
+            "The doctor accepted your home visit. Keep your phone available for coordination."
+            if consultation.get("consultation_type") == "home_visit"
+            else "Your doctor accepted. Join the consultation within 5 minutes."
+        ),
         "type": "doctor_consultation", "related_id": consultation_id, "read": False, "created_at": now.isoformat(),
     })
     fresh = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
