@@ -1306,6 +1306,79 @@ async def _expire_unjoined_doctor_consultations():
             "type": "doctor_consultation", "related_id": item["id"], "read": False, "created_at": now,
         })
 
+    # Recover abandoned checkouts: an interrupted mobile app may not have called
+    # payment-verify even though Razorpay captured a payment.
+    payment_cursor = db.doctor_consultations.find(
+        {"status": "payment_pending", "expires_at": {"$lte": now}}, {"_id": 0}
+    )
+    abandoned = await payment_cursor.to_list(100)
+    for item in abandoned:
+        lock = await db.doctor_consultations.update_one(
+            {"id": item["id"], "status": "payment_pending", "expires_at": {"$lte": now}},
+            {"$set": {"status": "payment_expiring", "updated_at": now}},
+        )
+        if lock.modified_count != 1:
+            continue
+        final_status = "payment_expired"
+        payment_status = "expired"
+        try:
+            key_id = os.environ.get("RAZORPAY_KEY_ID", "")
+            key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+            order_id = item.get("razorpay_order_id")
+            if not key_id or not key_secret or not order_id:
+                raise RuntimeError("Payment reconciliation credentials/order ID missing")
+            import razorpay
+            client = razorpay.Client(auth=(key_id, key_secret))
+            order_payments = client.order.payments(order_id)
+            payments = order_payments.get("items", []) if isinstance(order_payments, dict) else []
+            captured = next(
+                (
+                    payment for payment in payments
+                    if payment.get("status") == "captured"
+                    and int(payment.get("amount") or 0) == int(item.get("amount") or 0) * 100
+                ),
+                None,
+            )
+            if captured:
+                client.payment.refund(
+                    captured["id"],
+                    data={"amount": int(item.get("amount") or 0) * 100},
+                )
+                final_status = "refunded_abandoned_checkout"
+                payment_status = "refunded"
+            else:
+                # No captured charge exists. Any unsupported/failed attempt is not broadcast.
+                final_status = "payment_expired"
+                payment_status = "expired"
+        except Exception:
+            logging.exception("Abandoned doctor checkout reconciliation failed")
+            final_status = "refund_pending"
+            payment_status = "refund_pending"
+        await db.doctor_consultations.update_one(
+            {"id": item["id"], "status": "payment_expiring"},
+            {"$set": {
+                "status": final_status,
+                "payment_status": payment_status,
+                "refund_status": payment_status if payment_status == "refund_pending" else None,
+                "updated_at": now_iso(),
+            }},
+        )
+        await db.notifications.insert_one({
+            "id": new_id(),
+            "user_id": item["user_id"],
+            "title": "Checkout expired",
+            "message": (
+                "Your abandoned checkout was reconciled. Any captured payment has been sent for refund."
+                if payment_status == "refunded"
+                else "Your checkout expired without a verified consultation request. "
+                     + ("Resqly support needs to review the payment status." if payment_status == "refund_pending" else "No captured payment was found.")
+            ),
+            "type": "doctor_consultation",
+            "related_id": item["id"],
+            "read": False,
+            "created_at": now_iso(),
+        })
+
 
 _doctor_expiry_task = None
 
