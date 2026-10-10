@@ -106,7 +106,7 @@ export default function DoctorCall({ role }) {
           </div>
         )}
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex gap-2"><AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5"/><p className="text-xs text-amber-900">Do not use this screen for clinical care until video calling is enabled and tested. Prescription saving is available only to the assigned, verified doctor.</p></div>
-        {role === 'provider' && <Button variant="outline" onClick={complete} disabled={completing || (consultation.consultation_type === 'home_visit' ? !['accepted', 'in_progress'].includes(consultation.status) : consultation.status !== 'in_call') || role !== 'provider'} className="w-full">{completing ? 'Finishing…' : consultation.consultation_type === 'home_visit' ? 'Mark home visit complete' : consultation.status === 'in_call' ? 'Mark consultation complete' : 'Complete after the video call'}</Button>}
+        {role === 'provider' && <Button variant="outline" onClick={complete} disabled={completing || (consultation.consultation_type === 'home_visit' ? consultation.status !== 'in_progress' : consultation.status !== 'in_call') || role !== 'provider'} className="w-full">{completing ? 'Finishing…' : consultation.consultation_type === 'home_visit' ? 'Mark home visit complete' : consultation.status === 'in_call' ? 'Mark consultation complete' : 'Complete after the video call'}</Button>}
       </div>
     </MobileShell>
   );
