@@ -10,6 +10,7 @@ import ConsumerLogin from '@/pages/consumer/ConsumerLogin';
 import ConsumerOnboarding from '@/pages/consumer/ConsumerOnboarding';
 import ConsumerHome from '@/pages/consumer/ConsumerHome';
 import ConsumerServiceDetail from '@/pages/consumer/ConsumerServiceDetail';
+import ConsumerMarketplace from '@/pages/consumer/ConsumerMarketplace';
 import DoctorConsultation from '@/pages/consumer/DoctorConsultation';
 import ConsumerWaitlist from '@/pages/consumer/ConsumerWaitlist';
 import ConsumerEmergency from '@/pages/consumer/ConsumerEmergency';
@@ -83,6 +84,8 @@ function App() {
           <Route path="/consumer/onboarding" element={<PrivateRoute allow={['consumer']}><ConsumerOnboarding /></PrivateRoute>} />
           <Route path="/consumer/home" element={<PrivateRoute allow={['consumer']}><ConsumerHome /></PrivateRoute>} />
           <Route path="/consumer/service/doctor" element={<PrivateRoute allow={['consumer']}><DoctorConsultation /></PrivateRoute>} />
+          <Route path="/consumer/service/pharmacy" element={<PrivateRoute allow={['consumer']}><ConsumerMarketplace serviceType="pharmacy" /></PrivateRoute>} />
+          <Route path="/consumer/service/lab_test" element={<PrivateRoute allow={['consumer']}><ConsumerMarketplace serviceType="lab_test" /></PrivateRoute>} />
           <Route path="/consumer/service/:serviceKey" element={<PrivateRoute allow={['consumer']}><ConsumerServiceDetail /></PrivateRoute>} />
           <Route path="/consumer/doctor-call/:consultationId" element={<PrivateRoute allow={['consumer']}><DoctorCall role="consumer" /></PrivateRoute>} />
           <Route path="/consumer/waitlist" element={<PrivateRoute allow={['consumer']}><ConsumerWaitlist /></PrivateRoute>} />
