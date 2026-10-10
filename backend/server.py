@@ -1264,6 +1264,19 @@ async def create_doctor_payment_order(
     key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
     if not key_id or not key_secret or price <= 0:
         raise HTTPException(status_code=503, detail="Secure doctor payment is not configured. No payment or broadcast has occurred.")
+    candidate_query = {
+        "category": "doctor", "approval_status": "approved",
+        "availability_status": "available", "languages": {"$in": languages},
+    }
+    candidates = await db.providers.find(candidate_query, {"_id": 0, "id": 1, "latitude": 1, "longitude": 1}).to_list(1000)
+    if payload.consultation_type == "home_visit":
+        candidates = [
+            p for p in candidates
+            if _distance_km(payload.latitude, payload.longitude, p.get("latitude"), p.get("longitude")) is not None
+            and _distance_km(payload.latitude, payload.longitude, p.get("latitude"), p.get("longitude")) <= 25
+        ]
+    if not candidates:
+        raise HTTPException(status_code=409, detail="No matching doctors are available right now. Please try again later; you have not been charged.")
     try:
         import razorpay
         consultation_id = new_id()
