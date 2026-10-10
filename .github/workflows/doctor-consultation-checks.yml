@@ -1,0 +1,51 @@
+name: Doctor Consultation Checks
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/doctor-consultation-checks.yml"
+  push:
+    branches: [feature/edge-to-edge-doctor-calls]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/doctor-consultation-checks.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend-syntax:
+    name: Backend Python syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile backend modules
+        run: python -m compileall -q backend
+
+  frontend-build:
+    name: Frontend production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      REACT_APP_BACKEND_URL: https://example.invalid
+      GENERATE_SOURCEMAP: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build production bundle
+        run: CI=false yarn build
