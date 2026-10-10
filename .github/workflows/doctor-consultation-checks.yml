@@ -26,6 +26,10 @@ jobs:
           python-version: "3.12"
       - name: Compile backend modules
         run: python -m compileall -q backend
+      - name: Test Agora AccessToken2 generation
+        run: |
+          cd backend
+          python -m unittest discover -s tests
 
   frontend-build:
     name: Frontend production build
