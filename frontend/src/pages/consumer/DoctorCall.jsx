@@ -91,16 +91,19 @@ export default function DoctorCall({ role }) {
     }
   }, [consultationId, consultation?.status, loadConsultation]);
 
+  const activeConsultationId = consultation?.id;
+  const activeConsultationType = consultation?.consultation_type;
+  const activeConsultationStatus = consultation?.status;
   const autoLaunchForId = useRef('');
   useEffect(() => {
-    if (!consultation || consultation.consultation_type !== 'online') return;
-    if (!['accepted', 'in_call'].includes(consultation.status)) return;
-    if (!isNativeAgoraCallSupported() || autoLaunchForId.current === consultation.id) return;
+    if (!activeConsultationId || activeConsultationType !== 'online') return;
+    if (!['accepted', 'in_call'].includes(activeConsultationStatus)) return;
+    if (!isNativeAgoraCallSupported() || autoLaunchForId.current === activeConsultationId) return;
     // Navigating here follows the patient's "Get into video call" tap or the doctor's
     // Accept tap, so launch native calling without asking for a redundant second tap.
-    autoLaunchForId.current = consultation.id;
+    autoLaunchForId.current = activeConsultationId;
     startVideoCall();
-  }, [consultation?.id, consultation?.consultation_type, consultation?.status, startVideoCall]);
+  }, [activeConsultationId, activeConsultationType, activeConsultationStatus, startVideoCall]);
 
   const complete = async () => {
     setCompleting(true);
