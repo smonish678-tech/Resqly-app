@@ -9,11 +9,9 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
 import { CITIES, CONSUMER_SERVICES, SERVICE_LABELS } from '@/lib/constants';
-import ConsumerMarketplace from './ConsumerMarketplace';
 
 export default function ConsumerServiceDetail() {
   const { serviceKey } = useParams();
-  if (serviceKey === 'pharmacy' || serviceKey === 'lab_test') return <ConsumerMarketplace serviceType={serviceKey} />;
 
   const { me } = useAuth();
   const [joined, setJoined] = useState(false);
