@@ -1519,16 +1519,26 @@ async def write_doctor_prescription(
 async def complete_doctor_consultation(consultation_id: str, user: Dict[str, Any] = Depends(current_user)):
     if user.get("role") not in ("consumer", "provider"):
         raise HTTPException(status_code=403, detail="Forbidden")
-    query = {"id": consultation_id, "status": {"$in": ["accepted", "in_call"]}}
-    if user["role"] == "consumer":
-        query["user_id"] = user["id"]
-    else:
-        query["provider_id"] = user["id"]
-    result = await db.doctor_consultations.update_one(query, {"$set": {"status": "completed", "completed_at": now_iso(), "updated_at": now_iso()}})
+    consultation_before = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
+    if not consultation_before:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+    if user["role"] == "consumer" and consultation_before.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if user["role"] == "provider" and consultation_before.get("provider_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    result = await db.doctor_consultations.update_one(
+        {"id": consultation_id, "status": {"$in": ["accepted", "in_call"]}},
+        {"$set": {"status": "completed", "completed_at": now_iso(), "updated_at": now_iso()}},
+    )
     if result.modified_count != 1:
         raise HTTPException(status_code=409, detail="Consultation is not active")
-    if user["role"] == "provider":
-        await db.providers.update_one({"id": user["id"], "active_consultation_id": consultation_id}, {"$set": {"availability_status": "available"}, "$unset": {"active_consultation_id": ""}})
+    assigned_provider_id = consultation_before.get("provider_id")
+    if assigned_provider_id:
+        await db.providers.update_one(
+            {"id": assigned_provider_id, "active_consultation_id": consultation_id},
+            {"$set": {"availability_status": "available"}},
+            {"$unset": {"active_consultation_id": ""}},
+        )
     consultation = await db.doctor_consultations.find_one({"id": consultation_id}, {"_id": 0})
     return {"consultation": consultation}
 
