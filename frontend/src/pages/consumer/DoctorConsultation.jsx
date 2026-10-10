@@ -77,8 +77,8 @@ export default function DoctorConsultation() {
     return () => clearInterval(timer);
   }, [request?.join_deadline, request?.status]);
 
-  const getLocation = async () => {
-    if (coords) return coords;
+  const getLocation = async (force = false) => {
+    if (coords && !force) return coords;
     if (!navigator.geolocation) throw new Error('Location is not available on this device.');
     setLocationLoading(true);
     try {
