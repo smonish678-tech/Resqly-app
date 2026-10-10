@@ -9,7 +9,7 @@
 - Online video checkout is intentionally disabled until the native Agora bridge and secure RTC token service are connected and tested; the backend rejects direct API attempts too.
 - Eligible doctors must be approved, online/available, and language-matched. A home visit also requires a recent location and distance within 25 km.
 - Acceptance reserves the doctor as busy before assigning the request, preventing the same doctor from accepting two simultaneous requests. An active consultation prevents the doctor switching back to Available.
-- Accepted requests get a five-minute join deadline in the record and patient UI. Prescriptions can be written by the assigned verified doctor and are stored in the existing consumer prescriptions collection; medicine and follow-up details render in the RX screen.
+- Online requests record and display a five-minute join deadline; home visits do not use a video timer. The assigned doctor starts a home visit before writing its prescription. Online prescriptions remain gated until a real RTC call is marked active. Prescriptions are stored in the existing consumer collection; medicine and follow-up details render in RX.
 - Fixed malformed safe-area CSS and moved native edge-to-edge window configuration to after Activity creation.
 
 ## Required server configuration
@@ -29,13 +29,13 @@ If payment credentials or the home-visit price are missing, home-visit checkout 
 2. Patient describes the issue and chooses comfortable languages. Home visits capture GPS location.
 3. Backend creates a Razorpay order. Checkout closes or fails → no broadcast. Verified captured payment → request broadcast.
 4. Available, approved doctors with matching languages see requests. Online requests can match globally; home visits are limited to 25 km.
-5. First eligible doctor to accept is assigned; the backend atomically marks that doctor busy. The patient sees a five-minute join countdown.
-6. The assigned doctor can write a prescription. It is saved to the patient's existing Prescriptions/RX tab.
-7. Completing the consultation releases the assigned doctor back to Available.
+5. First eligible doctor to accept is assigned; the backend atomically marks that doctor busy. Online requests have a five-minute join countdown; home visits proceed without a video timer.
+6. For home visits, the doctor starts the visit, writes the prescription and marks the visit complete. Online prescriptions are blocked until RTC is genuinely active.
+7. Completing the visit releases the assigned doctor back to Available. If a paid request expires or an online join window expires, the backend attempts a refund and notifies the patient; failed refunds are marked for support follow-up.
 
 ## Critical launch blocker: RTC video is not yet operational
 
-The consultation room deliberately shows a safety gate rather than pretending a call is connected. The five-minute deadline is recorded and displayed, but native Agora media, join-token service, join acknowledgements, deadline-expiry cleanup/refund policy, and two-device testing are **not complete**. Do not use this build for live patient care until those items are completed and verified.
+The consultation room deliberately shows a safety gate rather than pretending a call is connected. Online checkout is disabled until native Agora media, a secure join-token service, participant join acknowledgements and two-device testing are complete. Five-minute/no-acceptance refund cleanup exists in code but still needs payment sandbox and race-condition testing. Do not use this build for live patient care until those items are completed and verified.
 
 ### Agora implementation gate
 
@@ -59,6 +59,6 @@ Target: native Android Kotlin RTC SDK integrated into the existing Capacitor app
 - [ ] Agora CLI RTC doctor passes.
 - [ ] Two-device audio/video, mic/camera controls, leave/rejoin, permissions denied, network interruption and token expiry.
 - [ ] Prescription access-control test and patient RX display test.
-- [ ] Decide and implement refund/no-show policy before the five-minute join deadline is enforced in production.
+- [ ] Verify the implemented refund/no-show behavior in Razorpay sandbox, including concurrent expiry/refund attempts.
 
 This document records the actual branch state, including what is still blocked. No build or device test is claimed unless a CI run confirms it.
