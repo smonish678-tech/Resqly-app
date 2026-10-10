@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import asyncio
 import logging
 import uuid
 import random
@@ -1264,6 +1265,38 @@ async def _expire_unjoined_doctor_consultations():
             "message": "The 5-minute join window expired. Refund status: " + refund_status.replace("_", " ") + ".",
             "type": "doctor_consultation", "related_id": item["id"], "read": False, "created_at": now,
         })
+
+
+_doctor_expiry_task = None
+
+
+@app.on_event("startup")
+async def start_doctor_consultation_expiry_worker():
+    global _doctor_expiry_task
+    if _doctor_expiry_task is not None and not _doctor_expiry_task.done():
+        return
+
+    async def worker():
+        while True:
+            try:
+                await _expire_unjoined_doctor_consultations()
+            except Exception:
+                logging.exception("Doctor consultation expiry worker failed")
+            await asyncio.sleep(30)
+
+    _doctor_expiry_task = asyncio.create_task(worker())
+
+
+@app.on_event("shutdown")
+async def stop_doctor_consultation_expiry_worker():
+    global _doctor_expiry_task
+    if _doctor_expiry_task is not None:
+        _doctor_expiry_task.cancel()
+        try:
+            await _doctor_expiry_task
+        except asyncio.CancelledError:
+            pass
+        _doctor_expiry_task = None
 
 
 def _doctor_prices():
