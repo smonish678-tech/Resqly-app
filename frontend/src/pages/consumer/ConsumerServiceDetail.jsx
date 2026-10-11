@@ -13,8 +13,13 @@ import ConsumerMarketplace from './ConsumerMarketplace';
 
 export default function ConsumerServiceDetail() {
   const { serviceKey } = useParams();
-  if (serviceKey === 'pharmacy' || serviceKey === 'lab_test') return <ConsumerMarketplace serviceType={serviceKey} />;
+  if (serviceKey === 'pharmacy' || serviceKey === 'lab_test') {
+    return <ConsumerMarketplace serviceType={serviceKey} />;
+  }
+  return <WaitlistServiceDetail serviceKey={serviceKey} />;
+}
 
+function WaitlistServiceDetail({ serviceKey }) {
   const { me } = useAuth();
   const [joined, setJoined] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -54,26 +59,18 @@ export default function ConsumerServiceDetail() {
           <div className="icon-tile" style={{ background: service.bg }}>
             <Icon size={28} color={service.fg} strokeWidth={2.2} />
           </div>
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">{service.label}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Verified marketplace</p>
-          </div>
-        </div>
-        <div className="resqly-card p-5 mt-4 bg-blue-50/50 border-blue-100">
-          <div className="flex gap-2 items-start">
-            <ShieldCheck className="w-5 h-5 text-blue-700 mt-0.5" />
-            <p className="text-sm text-slate-700">Resqly compares verified providers for you instead of making you call around. You see the best eligible quotation before you accept.</p>
-          </div>
+          <div><h3 className="text-lg font-semibold text-slate-950">{service.label}</h3><p className="text-sm text-slate-500 mt-0.5">{service.availability || 'Join the waitlist'}</p></div>
         </div>
         {joined ? (
-          <div className="resqly-card p-5 mt-4 text-center"><div className="text-3xl">✓</div><h3 className="font-semibold text-slate-900 mt-2">You're on the list!</h3></div>
+          <div className="resqly-card p-5 mt-4 text-center"><div className="text-3xl">✓</div><h3 className="font-semibold text-slate-950 mt-2">You’re on the list</h3><p className="text-sm text-slate-600 mt-1">We’ll contact you when this service opens.</p></div>
         ) : (
           <div className="resqly-card p-5 mt-4 space-y-3">
-            <h4 className="font-semibold text-slate-900">Join Waitlist</h4>
-            <Input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="Phone number" value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))} />
-            <select value={city} onChange={(e) => setCity(e.target.value)} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm bg-white">{CITIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
-            <Button onClick={join} disabled={submitting} className="w-full bg-blue-700 hover:bg-blue-800">{submitting ? 'Joining...' : 'Join Waitlist'}</Button>
+            <h4 className="font-semibold text-slate-950">Join the waitlist</h4>
+            <p className="text-sm text-slate-600">This service isn’t bookable through Resqly yet. Add your details to hear when it becomes available.</p>
+            <div><label htmlFor="waitlist-name" className="block text-sm font-medium text-slate-700 mb-1">Your name</label><Input id="waitlist-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" autoComplete="name" /></div>
+            <div><label htmlFor="waitlist-phone" className="block text-sm font-medium text-slate-700 mb-1">Phone number</label><Input id="waitlist-phone" inputMode="numeric" value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))} placeholder="10-digit mobile" autoComplete="tel" /></div>
+            <div><label htmlFor="waitlist-city" className="block text-sm font-medium text-slate-700 mb-1">City</label><select id="waitlist-city" value={city} onChange={(e) => setCity(e.target.value)} className="w-full min-h-[44px] border border-slate-200 rounded-xl px-3 py-2 text-base bg-white">{CITIES.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
+            <Button onClick={join} disabled={submitting} className="w-full min-h-[48px] bg-blue-700 hover:bg-blue-800">{submitting ? 'Joining…' : 'Join waitlist'}</Button>
           </div>
         )}
       </div>

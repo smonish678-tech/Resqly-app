@@ -13,6 +13,7 @@ export default function ConsumerLogin() {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [mockOtp, setMockOtp] = useState('');
+  const showDevOtp = process.env.REACT_APP_ENABLE_DEMO_OTP === 'true';
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -25,9 +26,9 @@ export default function ConsumerLogin() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/otp/request', { phone, role: 'consumer' });
-      setMockOtp(data.mock_otp || '');
+      if (showDevOtp && data.mock_otp) setMockOtp(data.mock_otp);
       setStep('otp');
-      toast.success('OTP sent');
+      toast.success(data.message || 'Check your messages for the OTP');
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed to send OTP');
     } finally {
@@ -104,11 +105,7 @@ export default function ConsumerLogin() {
                     className="flex-1 outline-none text-base tracking-[0.4em]"
                   />
                 </div>
-                {mockOtp && (
-                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md p-2 mt-3">
-                    Pre-launch demo OTP: <b>{mockOtp}</b>
-                  </p>
-                )}
+                {showDevOtp && mockOtp && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl p-3 mt-3">Local development OTP: <b>{mockOtp}</b><br/>Never enable this in a production build.</p>}
                 <Button data-testid="consumer-verify-otp" disabled={loading} onClick={verifyOtp} className="mt-4 w-full bg-blue-700 hover:bg-blue-800">
                   {loading ? 'Verifying...' : 'Verify & Continue'}
                 </Button>

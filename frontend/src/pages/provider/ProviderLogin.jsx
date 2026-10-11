@@ -18,6 +18,8 @@ export default function ProviderLogin() {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [mockOtp, setMockOtp] = useState('');
+  const showDevOtp = process.env.REACT_APP_ENABLE_DEMO_OTP === 'true';
+  const showDevReset = process.env.REACT_APP_ENABLE_DEMO_PASSWORD_RESET === 'true';
 
   // Email state
   const [emailMode, setEmailMode] = useState('login'); // login | register | forgot | reset
@@ -43,7 +45,7 @@ export default function ProviderLogin() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/otp/request', { phone, role: 'provider' });
-      setMockOtp(data.mock_otp || ''); setStep('otp'); toast.success('OTP sent');
+      if (showDevOtp && data.mock_otp) setMockOtp(data.mock_otp); setStep('otp'); toast.success(data.message || 'Check your messages for the OTP');
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); } finally { setLoading(false); }
   };
   const verifyOtp = async () => {
@@ -74,14 +76,14 @@ export default function ProviderLogin() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/provider/forgot-password', { email });
-      if (data.reset_token) {
+      if (showDevReset && data.reset_token) {
         setResetToken(data.reset_token);
         toast.success('Use the token below to reset');
         setEmailMode('reset');
       } else {
-        toast.success('If email exists, token sent');
+        toast.success(data.message || 'If the email exists, reset instructions will be sent.');
       }
-    } catch (e) { toast.error('Could not generate'); } finally { setLoading(false); }
+    } catch (e) { toast.error(e.response?.data?.detail || 'Could not start password reset'); } finally { setLoading(false); }
   };
   const doReset = async () => {
     setLoading(true);
@@ -125,7 +127,7 @@ export default function ProviderLogin() {
                       <MessageSquare className="w-4 h-4 text-slate-400" />
                       <input data-testid="provider-otp-input" inputMode="numeric" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} className="flex-1 outline-none tracking-[0.4em]" placeholder="123456" />
                     </div>
-                    {mockOtp && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md p-2 mt-3">Demo OTP: <b>{mockOtp}</b></p>}
+                    {showDevOtp && mockOtp && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl p-3 mt-3">Local development OTP: <b>{mockOtp}</b><br/>Never enable this in production.</p>}
                     <Button data-testid="provider-verify-otp" disabled={loading} onClick={verifyOtp} className="mt-4 w-full bg-blue-700 hover:bg-blue-800">{loading ? 'Verifying...' : 'Verify'}</Button>
                     <button onClick={() => setStep('phone')} className="mt-3 text-xs text-slate-500 underline w-full">Change phone</button>
                   </>
@@ -156,11 +158,12 @@ export default function ProviderLogin() {
                 {emailMode === 'forgot' && (<>
                   <Label>Email</Label>
                   <Input data-testid="provider-forgot-email" value={email} onChange={(e) => setEmail(e.target.value)} type="email" />
-                  <Button data-testid="provider-forgot-submit" disabled={loading} onClick={doForgot} className="w-full bg-blue-700 hover:bg-blue-800">Get Reset Token</Button>
+                  <p className="text-sm text-slate-600">Reset email delivery must be configured before password recovery can be enabled.</p>
+                  <Button data-testid="provider-forgot-submit" disabled={loading} onClick={doForgot} className="w-full bg-blue-700 hover:bg-blue-800">Request reset instructions</Button>
                   <button onClick={() => setEmailMode('login')} className="text-xs text-slate-500 w-full text-center">Back to login</button>
                 </>)}
-                {emailMode === 'reset' && (<>
-                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded p-2">Demo token: <b>{resetToken}</b></p>
+                {emailMode === 'reset' && showDevReset && (<>
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl p-3">Local development reset token. Never enable this in production.</p>
                   <Label>Email</Label><Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" />
                   <Label>Reset Token</Label><Input value={resetToken} onChange={(e) => setResetToken(e.target.value)} />
                   <Label>New Password</Label><Input value={newPwd} onChange={(e) => setNewPwd(e.target.value)} type="password" />
