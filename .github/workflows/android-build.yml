@@ -49,7 +49,7 @@ jobs:
           cache: "yarn"
           cache-dependency-path: frontend/yarn.lock
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
@@ -57,6 +57,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -93,20 +95,27 @@ jobs:
       #       RESQLY_KEY_ALIAS          -> e.g. resqly-release
       #       RESQLY_KEY_PASSWORD       -> key password
       # -----------------------------------------------------------------------
-      - name: Decode signing keystore
+      - name: Decode and validate signing keystore
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_release == 'true' }}
         id: keystore
         env:
           KS_B64: ${{ secrets.RESQLY_KEYSTORE_BASE64 }}
+          KS_STORE_PASSWORD: ${{ secrets.RESQLY_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.RESQLY_KEY_ALIAS }}
+          KS_KEY_PASSWORD: ${{ secrets.RESQLY_KEY_PASSWORD }}
         run: |
-          if [ -z "$KS_B64" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::RESQLY_KEYSTORE_BASE64 secret not set — skipping signed release build."
-          else
-            echo "$KS_B64" | base64 -d > "${{ github.workspace }}/release-signing.jks"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "Keystore decoded to ${{ github.workspace }}/release-signing.jks"
+          set -euo pipefail
+          if [ -z "$KS_B64" ] || [ -z "$KS_STORE_PASSWORD" ] || [ -z "$KS_ALIAS" ] || [ -z "$KS_KEY_PASSWORD" ]; then
+            echo "::error::Signed release requested, but one or more RESQLY signing secrets are missing."
+            echo "Configure RESQLY_KEYSTORE_BASE64, RESQLY_KEYSTORE_PASSWORD, RESQLY_KEY_ALIAS, and RESQLY_KEY_PASSWORD in repository Actions secrets."
+            exit 1
           fi
+          KEYSTORE="${{ github.workspace }}/release-signing.jks"
+          printf '%s' "$KS_B64" | base64 --decode > "$KEYSTORE"
+          test -s "$KEYSTORE"
+          keytool -list -keystore "$KEYSTORE" -storepass "$KS_STORE_PASSWORD" -alias "$KS_ALIAS" >/dev/null
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "Signing keystore and alias validated."
 
       - name: Build Release AAB + APK
         if: steps.keystore.outputs.skip == 'false'
@@ -117,6 +126,19 @@ jobs:
           RESQLY_KEY_ALIAS: ${{ secrets.RESQLY_KEY_ALIAS }}
           RESQLY_KEY_PASSWORD: ${{ secrets.RESQLY_KEY_PASSWORD }}
         run: ./gradlew --no-daemon bundleRelease assembleRelease
+
+      - name: Verify signed release APK and AAB
+        if: steps.keystore.outputs.skip == 'false'
+        working-directory: frontend/android
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          AAB="app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          jarsigner -verify "$AAB"
+          echo "Both release artifacts exist and their signing metadata verified."
 
       - name: Upload Release AAB (Play Store)
         if: steps.keystore.outputs.skip == 'false'
@@ -133,7 +155,7 @@ jobs:
         with:
           name: resqly-release-apk
           path: frontend/android/app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
 
       - name: Cleanup keystore from workspace

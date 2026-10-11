@@ -32,10 +32,18 @@ load_dotenv(ROOT_DIR / ".env")
 # ---------------- Config ----------------
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret")
+APP_ENV = os.environ.get("APP_ENV", "production").strip().lower()
+JWT_SECRET = os.environ.get("JWT_SECRET", "")
 JWT_ALG = "HS256"
 JWT_EXPIRE_DAYS = 30
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+
+# No insecure production fallbacks. Local development must set APP_ENV=development
+# and provide private environment variables rather than committing them.
+if len(JWT_SECRET) < 32 or JWT_SECRET in {"dev-secret", "changeme", "change-me"}:
+    raise RuntimeError("JWT_SECRET must be configured as a strong secret (at least 32 characters).")
+if not ADMIN_PASSWORD or ADMIN_PASSWORD == "admin":
+    raise RuntimeError("ADMIN_PASSWORD must be configured as a private, non-default secret.")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 PUBLIC_BUCKETS = set(os.environ.get("PUBLIC_BUCKETS", "profile-images").split(","))
@@ -447,11 +455,15 @@ def _gen_otp() -> str:
 
 @api.post("/auth/otp/request")
 async def request_otp(payload: OTPRequest, request: Request):
-    """Request OTP. Returns the mock OTP (random) for V1 (no SMS gateway)."""
+    """Request an OTP. Mock OTPs are limited to explicitly configured local development."""
     if payload.role not in ("consumer", "provider"):
         raise HTTPException(status_code=400, detail="Invalid role")
     # Rate-limit: 1/60s per phone, 5/hour per IP
     enforce_otp_request(request, payload.phone)
+    if APP_ENV == "production":
+        # No SMS provider is integrated in this repository. Never reveal a login code
+        # to the public caller; wire a real delivery provider before enabling production OTP.
+        raise HTTPException(status_code=503, detail="Phone verification is not configured yet. Please contact Resqly support.")
     otp = _gen_otp()
     await db.otp_requests.insert_one(
         {
@@ -468,8 +480,8 @@ async def request_otp(payload: OTPRequest, request: Request):
     )
     return {
         "success": True,
-        "message": f"OTP sent to {payload.phone}",
-        "mock_otp": otp,  # exposed for V1 pre-launch (no real SMS)
+        "message": "Development OTP generated. This is not an SMS delivery.",
+        "mock_otp": otp,
         "expires_in_seconds": OTP_EXPIRY_MIN * 60,
     }
 
@@ -629,20 +641,22 @@ async def provider_login(payload: EmailLogin):
 
 @api.post("/auth/provider/forgot-password")
 async def forgot_password(payload: ForgotPasswordRequest):
+    if APP_ENV == "production":
+        # No verified email delivery provider is configured yet; fail uniformly and
+        # do not reveal whether the supplied address belongs to a provider account.
+        raise HTTPException(status_code=503, detail="Password reset email is not configured yet. Please contact Resqly support.")
     provider = await db.providers.find_one({"email": payload.email.lower()})
     if not provider:
-        # Don't reveal if email exists
-        return {"success": True, "message": "If the email exists, a reset token has been sent."}
+        return {"success": True, "message": "If the email exists, reset instructions would be sent in a configured environment."}
     reset_token = new_id()
     await db.providers.update_one(
         {"id": provider["id"]},
         {"$set": {"reset_token": reset_token, "reset_token_at": now_iso()}},
     )
-    # V1: return reset token directly (no email service)
     return {
         "success": True,
-        "message": "Reset token generated",
-        "reset_token": reset_token,  # exposed for V1
+        "message": "Development reset token generated. This is not an email delivery.",
+        "reset_token": reset_token,
     }
 
 
@@ -1205,6 +1219,50 @@ async def create_marketplace_request(payload: MarketplaceRequestCreate, user: Di
     await db.marketplace_requests.update_one({"id":req["id"]},{"$set":{"candidate_count":req["candidate_count"],"broadcasted_at":req["broadcasted_at"]}})
     return {"request": req}
 
+@api.get("/marketplace/requests/mine")
+async def list_my_marketplace_requests(user: Dict[str, Any] = Depends(require_role("consumer"))):
+    """Return only this consumer's marketplace requests, newest first."""
+    requests = await db.marketplace_requests.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return {"requests": requests}
+
+
+@api.get("/marketplace/requests/mine/active")
+async def get_my_active_marketplace_request(service_type: Optional[str] = None, user: Dict[str, Any] = Depends(require_role("consumer"))):
+    """Return the consumer's newest request that can still receive or fulfil offers."""
+    query = {
+        "user_id": user["id"],
+        "status": {"$in": ["broadcasting", "quotations_received"]},
+    }
+    if service_type:
+        if service_type not in ("pharmacy", "lab_test"):
+            raise HTTPException(status_code=400, detail="Unsupported marketplace service")
+        query["service_type"] = service_type
+    req = await db.marketplace_requests.find_one(
+        query,
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+    if not req:
+        return {"request": None}
+    if req.get("status") in ("broadcasting", "quotations_received") and req.get("expires_at"):
+        try:
+            if datetime.fromisoformat(req["expires_at"]) < datetime.now(timezone.utc):
+                req["status"] = "expired"
+                req["updated_at"] = now_iso()
+                await db.marketplace_requests.update_one(
+                    {"id": req["id"], "user_id": user["id"]},
+                    {"$set": {"status": "expired", "updated_at": req["updated_at"]}},
+                )
+        except (TypeError, ValueError):
+            pass
+    order = await db.orders.find_one(
+        {"request_id": req["id"], "customer_id": user["id"]}, {"_id": 0}
+    )
+    return {"request": req, "order": order}
+
+
 @api.get("/marketplace/requests/{request_id}")
 async def get_marketplace_request(request_id: str, user: Dict[str, Any] = Depends(current_user)):
     req = await db.marketplace_requests.find_one({"id":request_id},{"_id":0})
@@ -1222,7 +1280,12 @@ async def get_marketplace_request(request_id: str, user: Dict[str, Any] = Depend
     if user.get("role") == "provider": query["provider_id"]=user["id"]
     quotes=await db.marketplace_quotations.find(query,{"_id":0}).sort([("total_price",1),("eta_minutes",1)]).to_list(100)
     best=min(quotes,key=_quote_rank) if quotes else None
-    return {"request":req,"quotations":quotes,"best_quotation":best}
+    order = None
+    if user.get("role") == "consumer":
+        order = await db.orders.find_one(
+            {"request_id": request_id, "customer_id": user["id"]}, {"_id": 0}
+        )
+    return {"request":req,"quotations":quotes,"best_quotation":best,"order":order}
 
 @api.post("/marketplace/pharmacy/quotations")
 async def create_pharmacy_quotation(payload: PharmacyQuotationCreate, user: Dict[str, Any] = Depends(require_role("provider"))):
@@ -1640,12 +1703,23 @@ async def shutdown_db_client():
 
 # Mount router and CORS
 app.include_router(api)
+_cors_origins = [
+    origin.strip()
+    for origin in os.environ.get(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3001,capacitor://localhost,https://localhost,http://localhost",
+    ).split(",")
+    if origin.strip()
+]
+if "*" in _cors_origins:
+    raise RuntimeError("CORS_ORIGINS must be an explicit origin allowlist; wildcard origins are not permitted.")
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 logging.basicConfig(

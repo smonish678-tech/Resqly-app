@@ -18,8 +18,8 @@ import ConsumerFamily from '@/pages/consumer/ConsumerFamily';
 import ConsumerPrescriptions from '@/pages/consumer/ConsumerPrescriptions';
 import ConsumerLabTests from '@/pages/consumer/ConsumerLabTests';
 import ConsumerEmergencyRequest from '@/pages/consumer/ConsumerEmergencyRequest';
+import ConsumerRequests from '@/pages/consumer/ConsumerRequests';
 import LocationPicker from '@/pages/consumer/LocationPicker';
-import SOSVault from '@/pages/consumer/SOSVault';
 
 // Provider
 import ProviderLogin from '@/pages/provider/ProviderLogin';
@@ -79,6 +79,7 @@ function App() {
           <Route path="/consumer/login" element={<ConsumerLogin />} />
           <Route path="/consumer/onboarding" element={<PrivateRoute allow={['consumer']}><ConsumerOnboarding /></PrivateRoute>} />
           <Route path="/consumer/home" element={<PrivateRoute allow={['consumer']}><ConsumerHome /></PrivateRoute>} />
+          <Route path="/consumer/requests" element={<PrivateRoute allow={['consumer']}><ConsumerRequests /></PrivateRoute>} />
           <Route path="/consumer/service/:serviceKey" element={<PrivateRoute allow={['consumer']}><ConsumerServiceDetail /></PrivateRoute>} />
           <Route path="/consumer/waitlist" element={<PrivateRoute allow={['consumer']}><ConsumerWaitlist /></PrivateRoute>} />
           <Route path="/consumer/emergency" element={<PrivateRoute allow={['consumer']}><ConsumerEmergency /></PrivateRoute>} />
@@ -89,7 +90,6 @@ function App() {
           <Route path="/consumer/prescriptions" element={<PrivateRoute allow={['consumer']}><ConsumerPrescriptions /></PrivateRoute>} />
           <Route path="/consumer/lab-tests" element={<PrivateRoute allow={['consumer']}><ConsumerLabTests /></PrivateRoute>} />
           <Route path="/consumer/location" element={<PrivateRoute allow={['consumer']}><LocationPicker /></PrivateRoute>} />
-          <Route path="/consumer/sos-vault" element={<PrivateRoute allow={['consumer']}><SOSVault /></PrivateRoute>} />
 
           {/* Provider */}
           <Route path="/provider/login" element={<ProviderLogin />} />
