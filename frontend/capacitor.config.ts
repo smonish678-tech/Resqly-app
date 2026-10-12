@@ -7,6 +7,7 @@ const config: CapacitorConfig = {
   // bundledWebRuntime is no longer needed in v7
   android: {
     allowMixedContent: false,
+    adjustMarginsForEdgeToEdge: 'disable',
     // Production backend is HTTPS; the webview is served from https://localhost
     // (Capacitor default), so cookies/storage stay scoped to the app.
   },
@@ -20,12 +21,15 @@ const config: CapacitorConfig = {
     cleartext: false,
   },
   plugins: {
+    StatusBar: { overlaysWebView: true, style: 'DARK' },
     SplashScreen: {
       launchShowDuration: 1500,
       backgroundColor: '#1d4ed8',
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
+      splashFullScreen: false,
+      splashImmersive: false,
       splashFullScreen: true,
       splashImmersive: true,
     },
