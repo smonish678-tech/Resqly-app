@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: resqly-current-app-checks-\${{ github.ref }}
+  group: resqly-current-app-checks-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
