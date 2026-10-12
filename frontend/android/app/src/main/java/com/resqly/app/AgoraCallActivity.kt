@@ -28,8 +28,8 @@ import io.agora.rtc2.Constants
 import io.agora.rtc2.IRtcEngineEventHandler
 import io.agora.rtc2.RtcEngine
 import io.agora.rtc2.RtcEngineConfig
-import io.agora.rtc2.VideoCanvas
-import io.agora.rtc2.VideoEncoderConfiguration
+import io.agora.rtc2.video.VideoCanvas
+import io.agora.rtc2.video.VideoEncoderConfiguration
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
