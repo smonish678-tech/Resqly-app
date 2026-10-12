@@ -7,6 +7,9 @@ const config: CapacitorConfig = {
   // bundledWebRuntime is no longer needed in v7
   android: {
     allowMixedContent: false,
+    // Keep the WebView edge-to-edge on all Android versions. Native insets are
+    // exposed as CSS variables so tappable content remains clear of system bars.
+    adjustMarginsForEdgeToEdge: 'disable',
     // Production backend is HTTPS; the webview is served from https://localhost
     // (Capacitor default), so cookies/storage stay scoped to the app.
   },
@@ -26,12 +29,16 @@ const config: CapacitorConfig = {
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
-      splashFullScreen: true,
-      splashImmersive: true,
+      // Keep the system bars visible and transparent instead of switching modes
+      // when the splash screen closes.
+      splashFullScreen: false,
+      splashImmersive: false,
     },
     StatusBar: {
-      style: 'LIGHT',
-      backgroundColor: '#1d4ed8',
+      // The native window and WebView both draw behind transparent system bars.
+      // Route-aware icon contrast is set by NativeSystemBars in App.js.
+      overlaysWebView: true,
+      style: 'DARK',
     },
     Geolocation: {
       // Permission strings live in AndroidManifest.xml
