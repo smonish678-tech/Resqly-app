@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
+import { StatusBar, Style } from '@capacitor/status-bar';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { Toaster } from '@/components/ui/sonner';
 import PrivateRoute from '@/components/PrivateRoute';
@@ -55,6 +57,18 @@ import Permissions from '@/pages/compliance/Permissions';
 
 import '@/App.css';
 
+
+function NativeSystemBars({ splashVisible }) {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== 'android') return;
+    const useLightIcons = splashVisible || pathname === '/provider/dashboard';
+    StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
+    StatusBar.setStyle({ style: useLightIcons ? Style.Dark : Style.Light }).catch(() => {});
+  }, [pathname, splashVisible]);
+  return null;
+}
+
 function RootRedirect() {
   // Consumer is the default experience. If already logged in as consumer, go to home.
   // Otherwise, go to consumer login.
@@ -76,6 +90,7 @@ function App() {
     <AuthProvider>
       {!splashed && <Splash onDone={() => { sessionStorage.setItem('resqly_splashed', '1'); setSplashed(true); }} />}
       <BrowserRouter>
+        <NativeSystemBars splashVisible={!splashed} />
         <Routes>
           <Route path="/" element={<RootRedirect />} />
 
