@@ -1,0 +1,103 @@
+name: Resqly Current App Checks
+
+on:
+  push:
+    branches: [redesign/resqly-current-app-v1.7.3]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/resqly-current-app-checks.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resqly-current-app-checks-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: Backend syntax and doctor tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile backend modules
+        run: python -m compileall -q backend
+      - name: Run backend unit tests
+        working-directory: backend
+        run: python -m unittest discover -s tests
+
+  frontend-build:
+    name: Frontend production bundle
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      REACT_APP_BACKEND_URL: https://resqly-launch.emergent.host
+      GENERATE_SOURCEMAP: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build frontend
+        run: CI=false yarn build
+
+  android-debug-apk:
+    name: Android debug APK (version 1.7.3, code 21)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      REACT_APP_BACKEND_URL: https://resqly-launch.emergent.host
+      GENERATE_SOURCEMAP: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build frontend
+        run: CI=false yarn build
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+      - name: Build Android debug APK
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+      - name: Verify APK version and signature
+        working-directory: frontend/android
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -F "versionCode='21' versionName='1.7.3'"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          sha256sum "$APK"
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: resqly-current-app-v1.7.3-code21-debug-apk
+          path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
