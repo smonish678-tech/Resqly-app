@@ -1,152 +1,179 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import * as Icons from 'lucide-react';
-import { Bell, ChevronDown, ShieldCheck, MapPin, ArrowRight, Ambulance, ChevronRight, Sparkles, Activity, HeartPulse } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Bell, ChevronDown, ChevronRight, MapPin, Search, ShieldCheck, Sparkles, Stethoscope, X } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import BottomNav from '@/components/BottomNav';
 import Logo from '@/components/Logo';
-import { Button } from '@/components/ui/button';
 import { CONSUMER_SERVICES } from '@/lib/constants';
 
+const SERVICE_DETAILS = {
+  ambulance: { subtitle: 'Urgent help and emergency options', availability: 'Emergency', kind: 'urgent' },
+  bystander: { subtitle: 'Personal support for everyday care', availability: 'Explore options', kind: 'soon' },
+  home_care: { subtitle: 'Help with care at home', availability: 'Explore options', kind: 'soon' },
+  home_nursing: { subtitle: 'Nursing support at home', availability: 'Explore options', kind: 'soon' },
+  lab_test: { subtitle: 'Explore lab tests and bookings', availability: 'Lab tests', kind: 'active' },
+  pharmacy: { subtitle: 'Find medicines and pharmacy options', availability: 'Pharmacy', kind: 'active' },
+  pet_care: { subtitle: 'Healthcare for your pets', availability: 'Explore options', kind: 'soon' },
+  doctor: { subtitle: 'Online consultations and home visits', availability: 'Online & home', kind: 'active' },
+};
+
 function greetingFor(name) {
-  const h = new Date().getHours();
-  const greet = h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const first = (name || '').trim().split(/\s+/)[0];
-  const hey = first ? `Hey ${first}` : 'Hey User';
-  return { greet, hey };
+  return { greet, first: first || 'there' };
+}
+
+function availabilityClass(kind) {
+  if (kind === 'urgent') return 'resqly-status resqly-status-urgent';
+  if (kind === 'active') return 'resqly-status resqly-status-active';
+  return 'resqly-status resqly-status-soon';
 }
 
 export default function ConsumerHome() {
   const { me } = useAuth();
   const navigate = useNavigate();
-  const [stats, setStats] = useState({ total: 0 });
   const [unreadCount, setUnreadCount] = useState(0);
+  const [stats, setStats] = useState({ total: 0 });
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     api.get('/waitlist/stats').then(({ data }) => setStats(data)).catch(() => {});
     api.get('/notifications').then(({ data }) => {
-      const unread = (data.notifications || []).filter((n) => !n.read).length;
-      setUnreadCount(unread);
+      setUnreadCount((data.notifications || []).filter((notification) => !notification.read).length);
     }).catch(() => {});
   }, []);
 
-  const locationLabel = me?.location || me?.city || 'Set your location';
+  const { greet, first } = greetingFor(me && me.name);
+  const locationLabel = (me && (me.location || me.city)) || 'Set your location';
+  const query = search.trim().toLowerCase();
+  const filteredServices = useMemo(() => CONSUMER_SERVICES.filter((service) => {
+    const details = SERVICE_DETAILS[service.key] || {};
+    return !query || [service.label, service.key, details.subtitle, details.availability]
+      .some((value) => String(value || '').toLowerCase().includes(query));
+  }), [query]);
 
   return (
-    <div className="resqly-shell">
-      <div className="resqly-frame flex flex-col min-h-screen">
-        {/* Top bar */}
-        <div className="px-5 pt-16 pb-2 flex items-center justify-between">
-          <button data-testid="home-location" onClick={() => navigate('/consumer/location')} className="flex items-start gap-2 text-left max-w-[70%]">
-            <MapPin className="w-4 h-4 text-blue-700 mt-0.5 flex-shrink-0" />
-            <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Location</div>
-              <div className="text-sm font-semibold text-slate-900 flex items-center gap-1 truncate">
-                <span className="truncate">{locationLabel}</span>
-                <ChevronDown className="w-3 h-3 flex-shrink-0" />
+    <div className="resqly-shell resqly-home-page">
+      <div className="resqly-frame resqly-home-frame flex flex-col min-h-screen">
+        <header className="resqly-home-header">
+          <div className="resqly-home-brand-row">
+            <Link to="/consumer/home" aria-label="Resqly home" className="resqly-home-brand"><Logo size={32} /></Link>
+            <div className="flex items-center gap-2">
+              <button type="button" aria-label="Open SOS Vault" data-testid="home-sos-vault" onClick={() => navigate('/consumer/sos-vault')}
+                className="inline-flex items-center gap-1.5 min-h-[44px] rounded-2xl border border-rose-100 bg-rose-50 px-3 text-xs font-bold text-rose-700">
+                <ShieldCheck className="w-4 h-4" aria-hidden="true" /> SOS Vault
+              </button>
+              <button type="button" aria-label={unreadCount ? 'Notifications, ' + unreadCount + ' unread' : 'Notifications'}
+                data-testid="home-notifications" onClick={() => navigate('/consumer/notifications')} className="resqly-notification-button">
+                <Bell className="w-5 h-5" aria-hidden="true" />
+                {unreadCount > 0 && <span className="resqly-notification-dot" />}
+              </button>
+            </div>
+          </div>
+          <button type="button" data-testid="home-location" onClick={() => navigate('/consumer/location')} className="resqly-location-control">
+            <span className="resqly-location-pin"><MapPin className="w-4 h-4" aria-hidden="true" /></span>
+            <span className="min-w-0 flex-1 text-left">
+              <span className="resqly-location-caption">YOUR LOCATION</span>
+              <span className="resqly-location-value">{locationLabel}</span>
+            </span>
+            <ChevronDown className="w-4 h-4 resqly-location-chevron" aria-hidden="true" />
+          </button>
+        </header>
+
+        <main className="flex-1 pb-5">
+          <section className="resqly-home-hero">
+            <div className="resqly-hero-orb resqly-hero-orb-one" aria-hidden="true" />
+            <div className="resqly-hero-orb resqly-hero-orb-two" aria-hidden="true" />
+            <div className="resqly-home-hero-content">
+              <span className="resqly-hero-kicker"><Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> CARE, WITHOUT THE CONFUSION</span>
+              <p className="resqly-home-greeting">{greet}, {first}</p>
+              <h1>How can we help you today?</h1>
+              <p className="resqly-home-hero-copy">Choose a care service, see your options, and keep your next step clear.</p>
+              <label className="resqly-home-search">
+                <Search className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
+                <span className="sr-only">Search healthcare services</span>
+                <input data-testid="home-service-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search doctors, medicines, lab tests…" autoComplete="off" />
+                {search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search" className="resqly-search-clear"><X className="w-4 h-4" /></button>}
+              </label>
+              <div className="resqly-search-hints" aria-label="Popular searches">
+                <span>Try:</span>
+                <button type="button" onClick={() => setSearch('doctor')}>Doctors</button>
+                <button type="button" onClick={() => setSearch('medicine')}>Medicines</button>
+                <button type="button" onClick={() => setSearch('lab')}>Lab tests</button>
               </div>
             </div>
-          </button>
-          <div className="flex items-center gap-2">
-            <button data-testid="home-notifications" onClick={() => navigate('/consumer/notifications')} className="p-2 bg-slate-50 rounded-full relative">
-              <Bell className="w-5 h-5 text-slate-700" />
-              {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />}
-            </button>
-            <button data-testid="home-sos-vault" onClick={() => navigate('/consumer/sos-vault')} className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-full inline-flex items-center gap-1.5 font-semibold text-xs">
-              <ShieldCheck className="w-4 h-4" />
-              <span>SOS Vault</span>
-            </button>
-          </div>
-        </div>
+          </section>
 
-        {/* Greeting */}
-        <div className="px-5 pt-2 pb-1" data-testid="home-greeting">
-          <div className="text-sm font-semibold text-slate-500" data-testid="home-greeting-time">{greetingFor(me?.name).greet}</div>
-          <div className="text-2xl font-bold text-slate-900 mt-0.5" data-testid="home-greeting-name">{greetingFor(me?.name).hey}</div>
-          <div className="text-sm text-slate-500 mt-1">How can we help you today?</div>
-        </div>
-
-        {/* Hero */}
-        <div className="mx-5 mt-3 rounded-3xl gradient-blue text-white p-3 relative overflow-hidden">
-          <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full bg-white/10" />
-          <div className="absolute -right-10 bottom-0 w-24 h-24 rounded-full bg-white/10" />
-          <Logo size={20} withText={false} />
-          <h1 className="text-base font-bold mt-1">Healthcare Simplified</h1>
-          <p className="text-xs text-blue-100 mt-1 max-w-[260px]">
-            Resqly is onboarding verified healthcare partners near you. Complete your profile for priority access.
-          </p>
-          <Button data-testid="home-join-waitlist" onClick={() => navigate('/consumer/waitlist')} className="mt-2 bg-white text-blue-800 hover:bg-blue-50 font-semibold h-8 text-xs">
-            Join Waitlist <ArrowRight className="w-4 h-4 ml-1" />
-          </Button>
-        </div>
-
-        {/* Emergency SOS — immediately below hero */}
-        <div className="px-5 mt-4">
-          <button
-            data-testid="home-emergency-sos"
-            onClick={() => navigate('/consumer/emergency-request')}
-            className="emergency-fab w-full rounded-3xl p-3 text-white text-left flex items-center gap-3 active:scale-[0.98] transition-transform"
-          >
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center relative flex-shrink-0">
-              <Ambulance className="w-5 h-5 text-white" strokeWidth={2.4} />
-              <span className="emergency-pulse absolute inset-0 rounded-2xl" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-full">SOS</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-white/80">24/7</span>
+          <section className="resqly-emergency-wrap" aria-labelledby="emergency-heading">
+            <div className="resqly-emergency-card">
+              <div className="resqly-emergency-icon"><Icons.Ambulance className="w-6 h-6" aria-hidden="true" /></div>
+              <div className="resqly-emergency-copy">
+                <span className="resqly-emergency-eyebrow">NEED URGENT HELP?</span>
+                <h2 id="emergency-heading">Call an ambulance</h2>
+                <p>For an immediate emergency, call India’s ambulance number directly.</p>
+                <a data-testid="home-call-108" href="tel:108" className="resqly-call-108">Call 108 <ArrowUpRight className="w-4 h-4" aria-hidden="true" /></a>
+                <button type="button" data-testid="home-emergency-sos" className="resqly-emergency-details" onClick={() => navigate('/consumer/emergency-request')}>Explore Resqly emergency options</button>
               </div>
-              <div className="text-sm font-bold mt-0.5">Emergency SOS</div>
-              <div className="text-xs text-white/85">Tap to request nearest verified ambulance</div>
             </div>
-            <ChevronRight className="w-5 h-5 text-white flex-shrink-0" />
-          </button>
-        </div>
+            <p className="resqly-emergency-note"><ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" /> Resqly is not a substitute for emergency services. Call 108 for immediate help.</p>
+          </section>
 
-        {/* Services */}
-        <div className="px-5 mt-6">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-slate-900">Our Services</h3>
-            <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">PRE-LAUNCH</span>
-          </div>
-          <div className="grid grid-cols-2 gap-3 mt-3">
-            {CONSUMER_SERVICES.map((s) => {
-              const Icon = Icons[s.icon] || Icons.Activity;
-              return (
-                <Link
-                  data-testid={`service-${s.key}`}
-                  key={s.key}
-                  to={`/consumer/service/${s.key}`}
-                  className="resqly-card p-3 flex flex-col items-center justify-center gap-2 hover:shadow-md transition active:scale-[0.98]"
-                >
-                  <div className="icon-tile" style={{ background: s.bg }}>
-                    <Icon size={24} color={s.fg} strokeWidth={2.2} />
-                  </div>
-                  <span className="text-sm font-medium text-slate-800 mt-1">{s.label}</span>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
+          <section className="resqly-services-section" id="explore-care" aria-labelledby="explore-heading">
+            <div className="resqly-section-heading">
+              <div><span className="resqly-section-eyebrow">YOUR NEXT STEP</span><h2 id="explore-heading">Explore care</h2><p>Choose a service to see how it works.</p></div>
+            </div>
+            {filteredServices.length ? (
+              <div className="resqly-service-grid">
+                {filteredServices.map((service) => {
+                  const Icon = Icons[service.icon] || Icons.Activity;
+                  const details = SERVICE_DETAILS[service.key] || { subtitle: 'Explore this service', availability: 'Explore options', kind: 'soon' };
+                  const target = service.key === 'ambulance' ? '/consumer/emergency-request' : '/consumer/service/' + service.key;
+                  return (
+                    <Link data-testid={'service-' + service.key} key={service.key} to={target} className="resqly-service-card">
+                      <span className="resqly-service-card-top">
+                        <span className="resqly-service-icon" style={{ background: service.bg, color: service.fg }}><Icon size={24} strokeWidth={2.1} aria-hidden="true" /></span>
+                        <span className={availabilityClass(details.kind)}>{details.availability}</span>
+                      </span>
+                      <span className="resqly-service-card-title">{service.label}<ChevronRight className="w-4 h-4" aria-hidden="true" /></span>
+                      <span className="resqly-service-card-subtitle">{details.subtitle}</span>
+                      <span className="resqly-service-card-action">{service.key === 'ambulance' ? 'Emergency help' : service.key === 'doctor' ? 'View consultations' : service.key === 'pharmacy' || service.key === 'lab_test' ? 'View options' : 'Explore service'} <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" /></span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="resqly-empty-search"><Search className="w-7 h-7" aria-hidden="true" /><h3>No services found for “{search}”</h3>
+                <p>Try a different search, such as doctor, medicine or lab test.</p><button type="button" onClick={() => setSearch('')}>Show all services</button>
+              </div>
+            )}
+          </section>
 
-        {/* Quick stat */}
-        <div className="px-5 mt-5 mb-2">
-          <div className="text-xs text-slate-500 text-center inline-flex items-center justify-center gap-1.5 w-full">
-            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-            <span><b className="text-blue-700">{stats.total || 0}+</b> people on the priority list across India</span>
-          </div>
-        </div>
+          <section className="resqly-progress-section" aria-labelledby="waitlist-heading">
+            <div className="resqly-progress-card">
+              <div className="resqly-progress-icon"><Sparkles className="w-5 h-5" aria-hidden="true" /></div>
+              <div className="resqly-progress-content">
+                <div className="resqly-progress-heading"><div><span className="resqly-section-eyebrow">STAY IN THE LOOP</span><h2 id="waitlist-heading">Join the priority list</h2></div><ShieldCheck className="w-5 h-5 text-slate-400" aria-hidden="true" /></div>
+                <p className="resqly-progress-description">{Number(stats.total) || 0} people have joined the Resqly priority list. Sign up to stay informed as services expand.</p>
+                <button type="button" className="resqly-progress-action" onClick={() => navigate('/consumer/waitlist')}>Join waitlist <ArrowRight className="w-4 h-4" aria-hidden="true" /></button>
+              </div>
+            </div>
+          </section>
 
-        {/* Small text link to Ranger (replaces big card) */}
-        <div className="px-5 mt-3 mb-4">
-          <button data-testid="home-ranger-link" onClick={() => navigate('/provider/login')} className="w-full text-center text-sm text-slate-600 py-3 border-t border-slate-100">
-            Healthcare Professional? <span className="text-blue-700 font-semibold">Join as a Resqly Ranger</span>
-          </button>
-        </div>
+          <section className="resqly-how-section" aria-label="How Resqly works">
+            <div className="resqly-how-heading"><Sparkles className="w-4 h-4" aria-hidden="true" /> Care without the guesswork</div>
+            <div className="resqly-how-steps"><div><span>01</span><p>Choose a service</p></div><div><span>02</span><p>Tell us what you need</p></div><div><span>03</span><p>Follow the next step</p></div></div>
+          </section>
 
-        <div className="flex-1" />
-        <div className="h-24" />
+          <section className="resqly-ranger-promo">
+            <div className="resqly-ranger-icon"><Stethoscope className="w-5 h-5" aria-hidden="true" /></div>
+            <div className="flex-1 min-w-0"><h2>Are you a healthcare professional?</h2><p>Join the Resqly Ranger network.</p></div>
+            <button type="button" onClick={() => navigate('/provider/login')} aria-label="Join as a Resqly Ranger"><ArrowUpRight className="w-5 h-5" aria-hidden="true" /></button>
+          </section>
+        </main>
         <BottomNav variant="consumer" />
       </div>
     </div>
