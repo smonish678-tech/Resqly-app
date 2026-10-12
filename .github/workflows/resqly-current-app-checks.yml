@@ -101,3 +101,74 @@ jobs:
           path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Prepare release signing
+        id: release-signing
+        env:
+          KS_B64: ${{ secrets.RESQLY_KEYSTORE_BASE64 }}
+          KS_STORE_PASSWORD: ${{ secrets.RESQLY_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.RESQLY_KEY_ALIAS }}
+          KS_KEY_PASSWORD: ${{ secrets.RESQLY_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KS_B64" ] || [ -z "$KS_STORE_PASSWORD" ] || [ -z "$KS_ALIAS" ] || [ -z "$KS_KEY_PASSWORD" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Release signing secrets are incomplete; only the debug APK will be provided."
+          else
+            KEYSTORE="$GITHUB_WORKSPACE/release-signing.jks"
+            printf '%s' "$KS_B64" | base64 --decode > "$KEYSTORE"
+            if keytool -list -keystore "$KEYSTORE" -storepass "$KS_STORE_PASSWORD" -alias "$KS_ALIAS" >/dev/null 2>&1; then
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "Release signing key and alias validated."
+            else
+              rm -f "$KEYSTORE"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::Release signing key could not be validated; only the debug APK will be provided."
+            fi
+          fi
+
+      - name: Build signed release APK and AAB
+        if: steps.release-signing.outputs.skip == 'false'
+        working-directory: frontend/android
+        env:
+          RESQLY_KEYSTORE_PATH: ${{ github.workspace }}/release-signing.jks
+          RESQLY_KEYSTORE_PASSWORD: ${{ secrets.RESQLY_KEYSTORE_PASSWORD }}
+          RESQLY_KEY_ALIAS: ${{ secrets.RESQLY_KEY_ALIAS }}
+          RESQLY_KEY_PASSWORD: ${{ secrets.RESQLY_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease bundleRelease
+
+      - name: Verify signed release APK and AAB
+        if: steps.release-signing.outputs.skip == 'false'
+        working-directory: frontend/android
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          AAB="app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -F "versionCode='21' versionName='1.7.3'"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          jarsigner -verify "$AAB"
+          sha256sum "$APK" "$AAB"
+
+      - name: Upload signed release APK
+        if: steps.release-signing.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resqly-current-app-v1.7.3-code21-release-apk
+          path: frontend/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload signed release AAB
+        if: steps.release-signing.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resqly-current-app-v1.7.3-code21-release-aab
+          path: frontend/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Clean up release keystore
+        if: always()
+        run: rm -f "$GITHUB_WORKSPACE/release-signing.jks"
