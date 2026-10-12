@@ -1,7 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import * as Icons from 'lucide-react';
-import { Bell, ChevronDown, MapPin, ChevronRight, Activity, ArrowUpRight } from 'lucide-react';
+import {
+  Activity,
+  ArrowRight,
+  ArrowUpRight,
+  Bell,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Clock3,
+  MapPin,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import BottomNav from '@/components/BottomNav';
@@ -9,10 +23,41 @@ import Logo from '@/components/Logo';
 import { CONSUMER_SERVICES } from '@/lib/constants';
 
 function greetingFor(name) {
-  const h = new Date().getHours();
-  const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const first = (name || '').trim().split(/\s+/)[0];
-  return { greet, hey: first ? `Hey ${first}` : 'Hello there' };
+  return { greet, first: first || 'there' };
+}
+
+function readableStatus(status) {
+  const labels = {
+    broadcasting: 'Finding providers',
+    quotations_received: 'Offers are ready',
+    payment_verified: 'Finding your doctor',
+    accepted: 'Accepted',
+    in_call: 'Consultation in progress',
+    in_progress: 'In progress',
+    order_placed: 'Order placed',
+    completed: 'Completed',
+    cancelled: 'Cancelled',
+    expired: 'Expired',
+    refunded_no_doctor: 'Refund started',
+    refunded_no_show: 'Refund started',
+    refund_pending: 'Refund needs support',
+    payment_pending: 'Checking payment',
+    payment_expiring: 'Checking payment',
+    refund_processing: 'Checking refund',
+    payment_expired: 'Payment not taken',
+    refunded_abandoned_checkout: 'Refund started',
+  };
+  return labels[status] || String(status || 'In progress').replaceAll('_', ' ');
+}
+
+function availabilityClass(kind) {
+  if (kind === 'urgent') return 'resqly-status resqly-status-urgent';
+  if (kind === 'active') return 'resqly-status resqly-status-active';
+  if (kind === 'waitlist') return 'resqly-status resqly-status-waitlist';
+  return 'resqly-status resqly-status-soon';
 }
 
 export default function ConsumerHome() {
@@ -23,140 +68,209 @@ export default function ConsumerHome() {
   const [loadingActive, setLoadingActive] = useState(true);
   const [requestError, setRequestError] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     let mounted = true;
     api.get('/notifications').then(({ data }) => {
-      if (!mounted) return;
-      setUnreadCount((data.notifications || []).filter((n) => !n.read).length);
+      if (mounted) setUnreadCount((data.notifications || []).filter((item) => !item.read).length);
     }).catch(() => {});
-    // The requests page owns full history. Home only surfaces a current request if the
-    // current backend exposes one; failure never blocks service discovery.
+    // Service discovery stays available if the optional active-request endpoint is offline.
     api.get('/marketplace/requests/mine/active').then(({ data }) => {
       if (mounted) setActiveRequest(data.request || null);
-    }).catch((e) => {
+    }).catch((error) => {
       if (!mounted) return;
-      // A 404 means this endpoint has not been deployed yet; surface no false active card.
-      setRequestError(e.response?.status !== 404);
-    }).finally(() => { if (mounted) setLoadingActive(false); });
+      setRequestError(error.response?.status !== 404);
+    }).finally(() => {
+      if (mounted) setLoadingActive(false);
+    });
     return () => { mounted = false; };
   }, [refreshKey]);
 
-  const locationLabel = me?.location || me?.city || 'Set your location';
-  const { greet, hey } = greetingFor(me?.name);
+  const { greet, first } = greetingFor(me && me.name);
+  const locationLabel = (me && (me.location || me.city)) || 'Set your location';
+  const query = search.trim().toLowerCase();
+  const filteredServices = useMemo(() => CONSUMER_SERVICES.filter((service) => {
+    if (!query) return true;
+    return [service.label, service.subtitle, service.availability, service.key]
+      .some((value) => String(value || '').toLowerCase().includes(query));
+  }), [query]);
   const activeRequestTarget = activeRequest && ['pharmacy', 'lab_test'].includes(activeRequest.service_type)
-    ? `/consumer/service/${activeRequest.service_type}?request_id=${encodeURIComponent(activeRequest.id)}`
+    ? '/consumer/service/' + activeRequest.service_type + '?request_id=' + encodeURIComponent(activeRequest.id)
     : '/consumer/requests';
 
   return (
-    <div className="resqly-shell">
-      <div className="resqly-frame flex flex-col min-h-screen">
-        <header className="px-5 pt-[calc(1.25rem+env(safe-area-inset-top,0px))] pb-3 flex items-center justify-between">
-          <button data-testid="home-location" onClick={() => navigate('/consumer/location')} className="flex items-start gap-2 text-left max-w-[70%] rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
-            <MapPin className="w-4 h-4 text-blue-700 mt-0.5 flex-shrink-0" aria-hidden="true" />
-            <span className="min-w-0">
-              <span className="block text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Your location</span>
-              <span className="text-sm font-semibold text-slate-900 flex items-center gap-1 truncate">
-                <span className="truncate">{locationLabel}</span><ChevronDown className="w-3 h-3 flex-shrink-0" />
-              </span>
-            </span>
-          </button>
-          <div className="flex items-center gap-2">
-            <button aria-label="Notifications" data-testid="home-notifications" onClick={() => navigate('/consumer/notifications')} className="p-2.5 bg-white border border-slate-200 rounded-full relative min-w-[44px] min-h-[44px] flex items-center justify-center">
-              <Bell className="w-5 h-5 text-slate-700" aria-hidden="true" />
-              {unreadCount > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full" />}
+    <div className="resqly-shell resqly-home-page">
+      <div className="resqly-frame resqly-home-frame flex flex-col min-h-screen">
+        <header className="resqly-home-header">
+          <div className="resqly-home-brand-row">
+            <Link to="/consumer/home" aria-label="Resqly home" className="resqly-home-brand">
+              <Logo size={32} />
+            </Link>
+            <button
+              type="button"
+              aria-label={unreadCount ? 'Notifications, ' + unreadCount + ' unread' : 'Notifications'}
+              data-testid="home-notifications"
+              onClick={() => navigate('/consumer/notifications')}
+              className="resqly-notification-button"
+            >
+              <Bell className="w-5 h-5" aria-hidden="true" />
+              {unreadCount > 0 && <span className="resqly-notification-dot" />}
             </button>
           </div>
+          <button
+            type="button"
+            data-testid="home-location"
+            onClick={() => navigate('/consumer/location')}
+            className="resqly-location-control"
+          >
+            <span className="resqly-location-pin"><MapPin className="w-4 h-4" aria-hidden="true" /></span>
+            <span className="min-w-0 flex-1 text-left">
+              <span className="resqly-location-caption">YOUR LOCATION</span>
+              <span className="resqly-location-value">{locationLabel}</span>
+            </span>
+            <ChevronDown className="w-4 h-4 resqly-location-chevron" aria-hidden="true" />
+          </button>
         </header>
 
-        <main className="flex-1 pb-4">
-          <section className="px-5 pt-3">
-            <p className="text-sm font-semibold text-slate-500">{greet}</p>
-            <h1 className="text-[30px] leading-tight font-bold tracking-tight text-slate-950 mt-1">{hey}</h1>
-            <p className="text-[15px] text-slate-600 mt-2">What do you need today?</p>
-          </section>
-
-          <section className="mx-5 mt-5 rounded-[28px] gradient-blue text-white p-5 relative overflow-hidden">
-            <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full bg-white/10" aria-hidden="true" />
-            <div className="absolute -right-10 bottom-0 w-24 h-24 rounded-full bg-white/10" aria-hidden="true" />
-            <div className="relative">
-              <div className="flex items-center gap-2 text-blue-100 text-xs font-semibold tracking-wide"><Logo size={19} withText={false} /> RESQLY CARE</div>
-              <h2 className="text-xl font-bold mt-3">Healthcare, made simpler.</h2>
-              <p className="text-sm text-blue-100 mt-1 max-w-[300px]">Choose a service, tell us what you need, and we’ll guide you through the next step.</p>
+        <main className="flex-1 pb-5">
+          <section className="resqly-home-hero">
+            <div className="resqly-hero-orb resqly-hero-orb-one" aria-hidden="true" />
+            <div className="resqly-hero-orb resqly-hero-orb-two" aria-hidden="true" />
+            <div className="resqly-home-hero-content">
+              <span className="resqly-hero-kicker"><Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> CARE, WITHOUT THE CONFUSION</span>
+              <p className="resqly-home-greeting">{greet}, {first}</p>
+              <h1>How can we help you today?</h1>
+              <p className="resqly-home-hero-copy">Find the right care, understand what happens next, and keep everything in one place.</p>
+              <label className="resqly-home-search">
+                <Search className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
+                <span className="sr-only">Search healthcare services</span>
+                <input
+                  data-testid="home-service-search"
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search doctors, medicines, lab tests…"
+                  autoComplete="off"
+                />
+                {search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search" className="resqly-search-clear"><X className="w-4 h-4" /></button>}
+              </label>
+              <div className="resqly-search-hints" aria-label="Popular searches">
+                <span>Try:</span>
+                <button type="button" onClick={() => setSearch('doctor')}>Doctors</button>
+                <button type="button" onClick={() => setSearch('medicine')}>Medicines</button>
+                <button type="button" onClick={() => setSearch('lab')}>Lab tests</button>
+              </div>
             </div>
           </section>
 
-          <section className="mx-5 mt-4">
-            <button
-              data-testid="home-emergency-sos"
-              onClick={() => navigate('/consumer/emergency-request')}
-              className="emergency-fab w-full rounded-2xl p-4 text-white text-left flex items-center gap-3 active:scale-[0.99] transition-transform"
-            >
-              <span className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0"><Icons.Ambulance className="w-6 h-6" aria-hidden="true" /></span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[11px] font-bold uppercase tracking-wider text-white/90">Emergency</span>
-                <span className="block text-base font-bold mt-0.5">Need an ambulance now?</span>
-                <span className="block text-xs text-white/90 mt-1">Call 108 for immediate ambulance assistance.</span>
-              </span>
-              <ChevronRight className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
-            </button>
-            <p className="text-[11px] text-slate-500 mt-2 px-1">Resqly emergency request logging is not an ambulance dispatch service yet.</p>
+          <section className="resqly-emergency-wrap" aria-labelledby="emergency-heading">
+            <div className="resqly-emergency-card">
+              <div className="resqly-emergency-icon"><Icons.Ambulance className="w-6 h-6" aria-hidden="true" /></div>
+              <div className="resqly-emergency-copy">
+                <span className="resqly-emergency-eyebrow">NEED URGENT HELP?</span>
+                <h2 id="emergency-heading">Call an ambulance</h2>
+                <p>For an immediate emergency, call India’s ambulance number.</p>
+                <a data-testid="home-emergency-sos" href="tel:108" className="resqly-call-108">Call 108 <ArrowUpRight className="w-4 h-4" aria-hidden="true" /></a>
+                <button type="button" className="resqly-emergency-details" onClick={() => navigate('/consumer/emergency-request')}>Explore Resqly emergency options</button>
+              </div>
+              <span className="resqly-emergency-decoration" aria-hidden="true"><Activity className="w-14 h-14" /></span>
+            </div>
+            <p className="resqly-emergency-note"><ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" /> Resqly does not dispatch ambulances yet. Call 108 for immediate help.</p>
           </section>
 
-          <section className="px-5 mt-7">
-            <div className="flex items-end justify-between gap-3">
+          <section className="resqly-services-section" id="explore-care" aria-labelledby="explore-heading">
+            <div className="resqly-section-heading">
               <div>
-                <h2 className="text-lg font-bold text-slate-950">Explore care</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Clear choices. One step at a time.</p>
+                <span className="resqly-section-eyebrow">YOUR NEXT STEP</span>
+                <h2 id="explore-heading">Explore care</h2>
+                <p>Pick a service to see what’s available.</p>
               </div>
-              <button onClick={() => navigate('/consumer/requests')} className="text-sm text-blue-700 font-semibold inline-flex items-center gap-1 min-h-[44px]">My Requests <ArrowUpRight className="w-4 h-4" /></button>
+              <Link to="/consumer/requests" className="resqly-text-link">My requests <ArrowRight className="w-4 h-4" aria-hidden="true" /></Link>
             </div>
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              {CONSUMER_SERVICES.map((s) => {
-                const Icon = Icons[s.icon] || Icons.Activity;
-                return (
-                  <Link
-                    data-testid={`service-${s.key}`}
-                    key={s.key}
-                    to={s.key === 'ambulance' ? '/consumer/emergency-request' : `/consumer/service/${s.key}`}
-                    className="resqly-card group flex flex-col items-start min-h-[158px] p-4 transition-transform duration-150 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-                  >
-                    <span className="flex items-start justify-between w-full gap-2">
-                      <span className="icon-tile w-12 h-12 rounded-2xl" style={{ background: s.bg }}>
-                        <Icon size={23} color={s.fg} strokeWidth={2.1} aria-hidden="true" />
+            {filteredServices.length > 0 ? (
+              <div className="resqly-service-grid">
+                {filteredServices.map((service) => {
+                  const Icon = Icons[service.icon] || Icons.Activity;
+                  return (
+                    <Link
+                      data-testid={'service-' + service.key}
+                      key={service.key}
+                      to={service.key === 'ambulance' ? '/consumer/emergency-request' : '/consumer/service/' + service.key}
+                      className="resqly-service-card"
+                    >
+                      <span className="resqly-service-card-top">
+                        <span className="resqly-service-icon" style={{ background: service.bg, color: service.fg }}>
+                          <Icon size={24} strokeWidth={2.1} aria-hidden="true" />
+                        </span>
+                        <span className={availabilityClass(service.availabilityKind)}>{service.availability}</span>
                       </span>
-                      <span className={`text-[10px] leading-tight text-right font-bold rounded-full px-2 py-1 max-w-[110px] ${s.availabilityKind === 'urgent' ? 'bg-rose-50 text-rose-700' : s.availabilityKind === 'active' ? 'bg-emerald-50 text-emerald-700' : s.availabilityKind === 'waitlist' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{s.availability}</span>
-                    </span>
-                    <span className="flex items-center justify-between w-full gap-2 mt-3">
-                      <span className="text-[15px] font-semibold text-slate-900">{s.label}</span>
-                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" aria-hidden="true" />
-                    </span>
-                    <span className="text-xs leading-relaxed text-slate-500 mt-1">{s.subtitle}</span>
-                  </Link>
-                );
-              })}
-            </div>
+                      <span className="resqly-service-card-title">{service.label}<ChevronRight className="w-4 h-4" aria-hidden="true" /></span>
+                      <span className="resqly-service-card-subtitle">{service.subtitle}</span>
+                      <span className="resqly-service-card-action">{service.availabilityKind === 'active' ? 'Explore options' : service.availabilityKind === 'urgent' ? 'Emergency help' : service.availabilityKind === 'waitlist' ? 'See availability' : 'View details'} <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" /></span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="resqly-empty-search">
+                <Search className="w-7 h-7" aria-hidden="true" />
+                <h3>No services found for “{search}”</h3>
+                <p>Try a different word, like doctor, medicine, or lab test.</p>
+                <button type="button" onClick={() => setSearch('')}>Show all services</button>
+              </div>
+            )}
           </section>
 
-          <section className="px-5 mt-6">
-            <div className="resqly-card p-4">
-              <div className="flex items-start gap-3">
-                <span className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center"><Activity className="w-5 h-5 text-blue-700" aria-hidden="true" /></span>
-                <div className="flex-1">
-                  <h2 className="font-semibold text-slate-900">Continue your request</h2>
-                  {loadingActive ? <p className="text-sm text-slate-500 mt-1">Checking for an active request…</p> :
-                    activeRequest ? <><p className="text-sm text-slate-600 mt-1">{activeRequest.service_type || 'Healthcare request'} · {String(activeRequest.status || 'in progress').replaceAll('_', ' ')}</p><button className="text-sm font-semibold text-blue-700 mt-3" onClick={() => navigate(activeRequestTarget)}>View request <ArrowUpRight className="inline w-4 h-4" /></button></> :
-                    requestError ? <><p className="text-sm text-slate-600 mt-1">We couldn’t check your requests just now.</p><button className="text-sm font-semibold text-blue-700 mt-3" onClick={() => { setLoadingActive(true); setRequestError(false); setRefreshKey((v) => v + 1); }}>Try again</button></> :
-                    <p className="text-sm text-slate-500 mt-1">Your current and past requests will be easy to find here.</p>}
+          <section className="resqly-progress-section" aria-labelledby="request-heading">
+            <div className="resqly-progress-card">
+              <div className="resqly-progress-icon"><Activity className="w-5 h-5" aria-hidden="true" /></div>
+              <div className="resqly-progress-content">
+                <div className="resqly-progress-heading">
+                  <div>
+                    <span className="resqly-section-eyebrow">STAY IN THE LOOP</span>
+                    <h2 id="request-heading">Your request progress</h2>
+                  </div>
+                  <Clock3 className="w-5 h-5 text-slate-400" aria-hidden="true" />
                 </div>
+                {loadingActive ? (
+                  <p className="resqly-progress-description" role="status">Checking for an active request…</p>
+                ) : activeRequest ? (
+                  <>
+                    <p className="resqly-progress-description">{String(activeRequest.service_type || 'Healthcare').replaceAll('_', ' ')} · {readableStatus(activeRequest.status)}</p>
+                    <button type="button" className="resqly-progress-action" onClick={() => navigate(activeRequestTarget)}>View your request <ArrowRight className="w-4 h-4" aria-hidden="true" /></button>
+                  </>
+                ) : requestError ? (
+                  <>
+                    <p className="resqly-progress-description">We couldn’t check right now. Your other services are still available.</p>
+                    <button type="button" className="resqly-progress-action" onClick={() => { setLoadingActive(true); setRequestError(false); setRefreshKey((value) => value + 1); }}>Try again <ArrowRight className="w-4 h-4" aria-hidden="true" /></button>
+                  </>
+                ) : (
+                  <>
+                    <p className="resqly-progress-description">When you request medicine or lab offers, you’ll see updates here.</p>
+                    <button type="button" className="resqly-progress-action" onClick={() => navigate('/consumer/requests')}>View all requests <ArrowRight className="w-4 h-4" aria-hidden="true" /></button>
+                  </>
+                )}
               </div>
             </div>
           </section>
 
-          <section className="px-5 mt-7 mb-5">
-            <button data-testid="home-ranger-link" onClick={() => navigate('/provider/login')} className="w-full text-center text-sm text-slate-600 py-4 border-t border-slate-200 min-h-[48px]">
-              Healthcare professional? <span className="text-blue-700 font-semibold">Join as a Resqly Ranger</span>
-            </button>
+          <section className="resqly-how-section" aria-label="How Resqly works">
+            <div className="resqly-how-heading"><CheckCircle2 className="w-4 h-4" aria-hidden="true" /> A clearer way to get care</div>
+            <div className="resqly-how-steps">
+              <div><span>01</span><p>Choose a service</p></div>
+              <div><span>02</span><p>Tell us what you need</p></div>
+              <div><span>03</span><p>Follow your updates</p></div>
+            </div>
+          </section>
+
+          <section className="resqly-ranger-promo">
+            <div className="resqly-ranger-icon"><Icons.Stethoscope className="w-5 h-5" aria-hidden="true" /></div>
+            <div className="flex-1 min-w-0">
+              <h2>Are you a healthcare professional?</h2>
+              <p>Join the Resqly Ranger network.</p>
+            </div>
+            <button type="button" onClick={() => navigate('/provider/login')} aria-label="Join as a Resqly Ranger"><ArrowUpRight className="w-5 h-5" aria-hidden="true" /></button>
           </section>
         </main>
         <BottomNav variant="consumer" />
