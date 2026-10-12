@@ -52,7 +52,7 @@ jobs:
         run: CI=false yarn build
 
   android-debug-apk:
-    name: Android debug APK (version 1.7.3, code 21)
+    name: Android arm64 debug APK (version 1.7.3, code 21)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -84,7 +84,7 @@ jobs:
         working-directory: frontend/android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          ./gradlew --no-daemon -PresqlyAbi=arm64-v8a assembleDebug
       - name: Verify APK version and signature
         working-directory: frontend/android
         run: |
@@ -97,7 +97,7 @@ jobs:
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: resqly-current-app-v1.7.3-code21-debug-apk
+          name: resqly-current-app-v1.7.3-code21-arm64-debug-apk
           path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -135,7 +135,9 @@ jobs:
           RESQLY_KEYSTORE_PASSWORD: ${{ secrets.RESQLY_KEYSTORE_PASSWORD }}
           RESQLY_KEY_ALIAS: ${{ secrets.RESQLY_KEY_ALIAS }}
           RESQLY_KEY_PASSWORD: ${{ secrets.RESQLY_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon assembleRelease bundleRelease
+        run: |
+          ./gradlew --no-daemon -PresqlyAbi=arm64-v8a assembleRelease
+          ./gradlew --no-daemon bundleRelease
 
       - name: Verify signed release APK and AAB
         if: steps.release-signing.outputs.skip == 'false'
@@ -155,7 +157,7 @@ jobs:
         if: steps.release-signing.outputs.skip == 'false'
         uses: actions/upload-artifact@v4
         with:
-          name: resqly-current-app-v1.7.3-code21-release-apk
+          name: resqly-current-app-v1.7.3-code21-arm64-release-apk
           path: frontend/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
